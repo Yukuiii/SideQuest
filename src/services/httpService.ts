@@ -7,6 +7,7 @@ import * as https from "https";
 import * as http from "http";
 import { URL } from "url";
 import * as zlib from "zlib";
+import * as iconv from "iconv-lite";
 import { logger } from "../utils/logger";
 
 /** HTTP 请求选项 */
@@ -228,6 +229,7 @@ async function decompressBuffer(
 
 /**
  * 解码 Buffer 为字符串
+ * 使用 iconv-lite 支持 GBK/GB2312/GB18030 等中文编码
  * @param buffer 数据
  * @param charset 字符编码
  * @param contentType Content-Type 头
@@ -247,32 +249,29 @@ function decodeBuffer(
     }
   }
 
-  // 常见编码映射
-  const encodingMap: Record<string, BufferEncoding> = {
-    "utf-8": "utf8",
-    utf8: "utf8",
-    gbk: "latin1", // Node.js 不直接支持 GBK，需要额外处理
-    gb2312: "latin1",
-    gb18030: "latin1",
-    "iso-8859-1": "latin1",
-    latin1: "latin1",
-  };
+  // 标准化编码名称
+  const normalizedEncoding = encoding.toLowerCase().replace(/-/g, "");
 
-  const nodeEncoding = encodingMap[encoding.toLowerCase()] || "utf8";
-
-  // GBK 等中文编码需要特殊处理
-  if (["gbk", "gb2312", "gb18030"].includes(encoding.toLowerCase())) {
-    // 使用 TextDecoder 处理中文编码
+  // 使用 iconv-lite 解码（支持 GBK/GB2312/GB18030 等）
+  if (iconv.encodingExists(normalizedEncoding)) {
     try {
-      const decoder = new TextDecoder(encoding);
-      return decoder.decode(buffer);
-    } catch {
-      // 降级处理
-      return buffer.toString(nodeEncoding);
+      return iconv.decode(buffer, normalizedEncoding);
+    } catch (err) {
+      logger.error(`使用 ${normalizedEncoding} 解码失败:`, err);
     }
   }
 
-  return buffer.toString(nodeEncoding);
+  // 尝试原始编码名称
+  if (iconv.encodingExists(encoding)) {
+    try {
+      return iconv.decode(buffer, encoding);
+    } catch (err) {
+      logger.error(`使用 ${encoding} 解码失败:`, err);
+    }
+  }
+
+  // 降级为 UTF-8
+  return buffer.toString("utf8");
 }
 
 /**
