@@ -7,6 +7,7 @@ import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import SourceImport from "../components/SourceImport.vue";
 import BookList from "../components/BookList.vue";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { BookInfo, ChapterInfo } from "../core/source";
 import { sourceManager, getChapters, getContent, bookshelf } from "../core/source";
 
@@ -28,6 +29,8 @@ const loading = ref(false);
 const error = ref("");
 /** 是否显示章节列表 */
 const showChapterList = ref(false);
+/** 删除确认对话框状态 */
+const showDeleteConfirm = ref(false);
 /** 待删除的书源 */
 const pendingDeleteSource = ref<{ id: string; name: string } | null>(null);
 
@@ -191,6 +194,7 @@ function deleteSource(id: string) {
   const source = sourceManager.getById(id);
   if (source) {
     pendingDeleteSource.value = { id, name: source.name };
+    showDeleteConfirm.value = true;
   }
 }
 
@@ -202,13 +206,6 @@ function confirmDeleteSource() {
     sourceManager.delete(pendingDeleteSource.value.id);
     pendingDeleteSource.value = null;
   }
-}
-
-/**
- * 取消删除书源
- */
-function cancelDeleteSource() {
-  pendingDeleteSource.value = null;
 }
 
 // 监听书架变更
@@ -439,30 +436,14 @@ bookshelf.onChange((books) => {
     </div>
 
     <!-- 删除确认对话框 -->
-    <div
-      v-if="pendingDeleteSource"
-      class="absolute inset-0 flex items-center justify-center bg-black/50"
-    >
-      <div class="rounded bg-[var(--vscode-sideBar-background)] p-4 shadow-lg max-w-[280px]">
-        <div class="mb-4 text-sm">
-          确定要删除书源「{{ pendingDeleteSource.name }}」吗？
-        </div>
-        <div class="flex justify-end gap-2">
-          <button
-            class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-sm text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
-            @click="cancelDeleteSource"
-          >
-            取消
-          </button>
-          <button
-            class="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
-            @click="confirmDeleteSource"
-          >
-            删除
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      v-model:visible="showDeleteConfirm"
+      title="删除书源"
+      :message="`确定要删除书源「${pendingDeleteSource?.name}」吗？`"
+      confirm-text="删除"
+      :danger="true"
+      @confirm="confirmDeleteSource"
+    />
   </div>
 </template>
 

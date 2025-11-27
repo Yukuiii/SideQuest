@@ -242,14 +242,19 @@ export class SourceManager {
   private importLegado(sourceString: string, result: ImportResult): ImportResult {
     try {
       const legadoSources = parseLegadoSources(sourceString);
+      console.log("[importLegado] 解析到", legadoSources.length, "个书源");
+
       for (const legadoSource of legadoSources) {
+        console.log("[importLegado] 原始书源:", legadoSource);
         const unified = convertLegadoToUnified(legadoSource);
+        console.log("[importLegado] 转换后的统一格式:", unified);
         this.upsert(unified);
         result.success++;
       }
     } catch (error) {
       result.failed++;
       result.errors.push(error instanceof Error ? error.message : "解析失败");
+      console.error("[importLegado] 解析失败:", error);
     }
 
     return result;

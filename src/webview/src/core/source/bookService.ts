@@ -32,6 +32,7 @@ async function searchBooksLegado(
 
   // 解析搜索 URL（传入 baseUrl 用于拼接相对路径）
   const urlRule = parseUrlRule(source.searchUrl, keyword, source.bookSourceUrl);
+  console.log("[searchBooks] URL 规则:", urlRule);
 
   // 发起请求
   const response =
@@ -45,6 +46,9 @@ async function searchBooksLegado(
           charset: urlRule.charset,
         });
 
+  console.log("[searchBooks] 响应:", { success: response.success, hasData: !!response.data, error: response.error });
+  console.log("[searchBooks] 响应内容前 2000 字符:", response.data?.slice(0, 2000));
+
   if (!response.success || !response.data) {
     throw new Error(response.error || "请求失败");
   }
@@ -53,17 +57,36 @@ async function searchBooksLegado(
   const parser = new DOMParser();
   const doc = parser.parseFromString(response.data, "text/html");
 
+  // 调试：检查是否有 .sone 元素
+  console.log("[searchBooks] 页面中 .sone 元素数量:", doc.querySelectorAll(".sone").length);
+  console.log("[searchBooks] 页面 body 前 1000 字符:", doc.body?.innerHTML.slice(0, 1000));
+
   // 提取书籍列表
   const rules = source.ruleSearch;
+  console.log("[searchBooks] 搜索规则:", rules);
+
   const bookListRule = parseRule(rules.bookList || "");
+  console.log("[searchBooks] 书籍列表规则:", bookListRule);
+
   const bookElements = bookListRule.selector
     ? doc.querySelectorAll(bookListRule.selector)
     : [doc.documentElement];
 
+  console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);
+
   const books: BookInfo[] = [];
 
-  bookElements.forEach((element) => {
+  bookElements.forEach((element, index) => {
     try {
+      // 调试前3个元素
+      if (index < 3) {
+        console.log(`[searchBooks] 元素 ${index} HTML:`, element.outerHTML.slice(0, 500));
+        console.log(`[searchBooks] 元素 ${index} name 规则:`, rules.name);
+        console.log(`[searchBooks] 元素 ${index} name 结果:`, extractText(element, rules.name));
+        console.log(`[searchBooks] 元素 ${index} bookUrl 规则:`, rules.bookUrl);
+        console.log(`[searchBooks] 元素 ${index} bookUrl 结果:`, extractText(element, rules.bookUrl));
+      }
+
       const book: BookInfo = {
         name: extractText(element, rules.name) || "",
         author: extractText(element, rules.author),

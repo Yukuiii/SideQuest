@@ -452,6 +452,12 @@ export interface ParsedUrlRule {
 
 /**
  * 解析 URL 规则
+ * 支持 Legado 的复杂 URL 格式：
+ * - 简单格式: /search?key={{key}}
+ * - JSON 配置格式: /search,{"charset":"utf-8","method":"post","body":"keyword={{key}}"}
+ * - 请求头格式: url@header{"User-Agent":"..."}
+ * - 编码格式: url@charset=gbk
+ *
  * @param urlRule URL 规则字符串
  * @param searchKey 搜索关键词（用于替换占位符）
  * @param baseUrl 基础 URL（用于拼接相对路径）
@@ -464,22 +470,58 @@ export function parseUrlRule(urlRule: string, searchKey?: string, baseUrl?: stri
   let headers: Record<string, string> | undefined;
   let charset: string | undefined;
 
+  // 检查是否有 JSON 配置（格式: url,{...}）
+  const jsonConfigMatch = url.match(/^(.+?),\s*(\{[\s\S]+\})\s*$/);
+  if (jsonConfigMatch) {
+    url = jsonConfigMatch[1] || "";
+    try {
+      const config = JSON.parse(jsonConfigMatch[2] || "{}") as {
+        method?: string;
+        charset?: string;
+        body?: string;
+        headers?: Record<string, string>;
+      };
+
+      // 解析 method
+      if (config.method?.toLowerCase() === "post") {
+        method = "POST";
+      }
+
+      // 解析 charset
+      if (config.charset) {
+        charset = config.charset;
+      }
+
+      // 解析 body
+      if (config.body) {
+        body = config.body;
+      }
+
+      // 解析 headers
+      if (config.headers) {
+        headers = config.headers;
+      }
+
+      console.log("[parseUrlRule] 解析 JSON 配置:", { url, method, charset, body, headers });
+    } catch (e) {
+      console.error("[parseUrlRule] JSON 配置解析失败:", e);
+    }
+  }
+
   // 替换搜索关键词占位符（支持多种 Legado 模板语法）
   if (searchKey) {
     const encodedKey = encodeURIComponent(searchKey);
-    // {{key}} 格式
-    url = url.replace(/\{\{key\}\}/g, encodedKey);
-    // {{encodeURIComponent(key)}} 格式
-    url = url.replace(/\{\{encodeURIComponent\(key\)\}\}/g, encodedKey);
-    // {{java.encodeURI(key)}} 格式
-    url = url.replace(/\{\{java\.encodeURI\(key\)\}\}/g, encodedKey);
-    // searchKey 变量
-    url = url.replace(/searchKey/g, encodedKey);
-    // $key 格式
-    url = url.replace(/\$key/g, encodedKey);
+
+    // 替换 URL 中的占位符
+    url = replaceKeyPlaceholders(url, searchKey, encodedKey);
+
+    // 替换 body 中的占位符
+    if (body) {
+      body = replaceKeyPlaceholders(body, searchKey, encodedKey);
+    }
   }
 
-  // 处理相对 URL
+  // 处理相对 URL（在替换占位符之后）
   if (baseUrl && !url.startsWith("http://") && !url.startsWith("https://")) {
     // 移除 baseUrl 末尾的斜杠
     const base = baseUrl.replace(/\/+$/, "");
@@ -488,30 +530,18 @@ export function parseUrlRule(urlRule: string, searchKey?: string, baseUrl?: stri
     url = base + path;
   }
 
-  // 检查是否有 POST 数据
-  const postMatch = url.match(/,\s*(\{.+\})\s*$/);
-  if (postMatch) {
-    method = "POST";
-    try {
-      body = postMatch[1];
-      url = url.slice(0, url.indexOf(postMatch[0]));
-    } catch {
-      // 保持原样
-    }
-  }
-
-  // 检查请求头
+  // 检查请求头（旧格式: @header{...}）
   const headerMatch = url.match(/@header(\{.+?\})/);
   if (headerMatch && headerMatch[1]) {
     try {
-      headers = JSON.parse(headerMatch[1]);
+      headers = { ...headers, ...JSON.parse(headerMatch[1]) };
       url = url.replace(headerMatch[0], "");
     } catch {
       // 保持原样
     }
   }
 
-  // 检查字符编码
+  // 检查字符编码（旧格式: @charset=xxx）
   const charsetMatch = url.match(/@charset=(\w+)/);
   if (charsetMatch) {
     charset = charsetMatch[1];
@@ -525,4 +555,27 @@ export function parseUrlRule(urlRule: string, searchKey?: string, baseUrl?: stri
     headers,
     charset,
   };
+}
+
+/**
+ * 替换搜索关键词占位符
+ * @param str 待替换的字符串
+ * @param rawKey 原始关键词
+ * @param encodedKey URL 编码后的关键词
+ * @returns 替换后的字符串
+ */
+function replaceKeyPlaceholders(str: string, rawKey: string, encodedKey: string): string {
+  return str
+    // {{key}} 格式 - 使用编码后的关键词
+    .replace(/\{\{key\}\}/g, encodedKey)
+    // {{encodeURIComponent(key)}} 格式
+    .replace(/\{\{encodeURIComponent\(key\)\}\}/g, encodedKey)
+    // {{java.encodeURI(key)}} 格式
+    .replace(/\{\{java\.encodeURI\(key\)\}\}/g, encodedKey)
+    // searchKey 变量
+    .replace(/searchKey/g, encodedKey)
+    // $key 格式
+    .replace(/\$key/g, encodedKey)
+    // keyword={{key}} 中的 {{key}} 可能需要原始值（在 body 中）
+    .replace(/\{\{key\}\}/g, rawKey);
 }
