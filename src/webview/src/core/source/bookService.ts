@@ -6,7 +6,7 @@
 
 import { httpGet, httpPost } from "../../utils/vscode";
 import type { UnifiedSource, BookInfo, ChapterInfo, LegadoSource } from "./types";
-import { parseRule, executeRule, parseUrlRule } from "./legadoRuleParser";
+import { parseRule, executeRule, parseUrlRule, queryLegadoSelectorAll } from "./legadoRuleParser";
 
 /**
  * 搜索书籍
@@ -68,8 +68,9 @@ async function searchBooksLegado(
   const bookListRule = parseRule(rules.bookList || "");
   console.log("[searchBooks] 书籍列表规则:", bookListRule);
 
+  // 使用 Legado 选择器解析（支持 @ 链式语法）
   const bookElements = bookListRule.selector
-    ? doc.querySelectorAll(bookListRule.selector)
+    ? queryLegadoSelectorAll(doc.documentElement, bookListRule.selector)
     : [doc.documentElement];
 
   console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);

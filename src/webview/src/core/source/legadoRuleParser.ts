@@ -2,18 +2,42 @@
  * Legado 规则解析引擎
  * 专门用于解析 Legado 书源的规则语法
  *
- * 规则语法说明：
- * - CSS 选择器: div.class, #id, tag
- * - Legado 索引语法: tag.index (如 span.1 表示第2个span), tag.-1 (最后一个)
- * - 链式选择器: selector@selector@attr
+ * 规则语法说明（参考 https://mgz0227.github.io/The-tutorial-of-Legado/Rule/source.html）：
+ *
+ * 一、JSOUP Default 语法（@ 分隔符）
+ * - class.classname.index: 按 class 选择，如 class.odd.0
+ * - tag.tagname.index: 按标签选择，如 tag.a.0
+ * - id.idname: 按 ID 选择，如 id.content
+ * - text.内容: 按文本内容匹配
+ * - children.index: 获取子元素
+ * - .classname.index: class 的简写形式
+ *
+ * 二、索引和位置
+ * - 正数从 0 开始，0 是第一个
+ * - 负数从末尾开始，-1 是最后一个
+ * - 不加索引获取所有匹配元素
+ * - [0,2,4]: 获取指定位置
+ * - [!0,2]: 排除指定位置
+ * - [0:5]: 区间（左闭右开）
+ * - [0:10:2]: 带步长的区间
+ *
+ * 三、属性获取（@ 最后一段）
  * - @text: 获取文本内容
+ * - @textNodes: 获取所有文本节点
+ * - @ownText: 仅获取直接文本
  * - @html: 获取 HTML 内容
  * - @href: 获取链接地址
  * - @src: 获取图片地址
  * - @attr/属性名: 获取指定属性
- * - ##正则: 正则匹配
- * - {{js代码}}: JavaScript 执行
+ *
+ * 四、特殊语法
+ * - ##正则##替换: 正则替换
+ * - -selector: 列表反序
+ * - @css:: 标准 CSS 选择器
+ * - @json: 或 $.: JSONPath
+ * - @XPath: 或 //: XPath
  * - || 或 &&: 组合规则
+ * - {{js代码}}: JavaScript 执行
  */
 
 /** 规则解析结果类型 */
@@ -77,7 +101,13 @@ export function parseRule(rule: string): ParsedRule {
     };
   }
 
-  // 检查 JSONPath
+  // 检查 JSONPath（支持 @json: 前缀）
+  if (trimmedRule.startsWith("@json:")) {
+    return {
+      type: "json",
+      selector: trimmedRule.slice(6).trim(),
+    };
+  }
   if (trimmedRule.startsWith("$.") || trimmedRule.startsWith("$[")) {
     return {
       type: "json",
@@ -85,13 +115,16 @@ export function parseRule(rule: string): ParsedRule {
     };
   }
 
-  // 检查 XPath
-  if (trimmedRule.startsWith("//") || trimmedRule.startsWith("@xpath:")) {
+  // 检查 XPath（支持 @XPath: 前缀，不区分大小写）
+  if (trimmedRule.startsWith("//") || trimmedRule.toLowerCase().startsWith("@xpath:")) {
     return {
       type: "xpath",
-      selector: trimmedRule.replace(/^@xpath:/, ""),
+      selector: trimmedRule.replace(/^@xpath:/i, ""),
     };
   }
+
+  // 检查 @css: 前缀（标准 CSS 选择器）
+  // 注意：这里只做标记，实际处理在 queryLegadoSelectorAll 中
 
   // Legado 链式语法: selector@selector@attr##regex##replacement
   // 例如: span.1@a@text##正则
@@ -215,79 +248,283 @@ export function executeRule(
 
 /**
  * 解析 Legado 选择器语法
- * 支持: tag.index (如 span.1 表示第2个span)
- *       tag.-1 (最后一个)
- *       tag:index (同上)
- *       tag class (标准 CSS)
+ * 支持完整的 Legado JSOUP Default 语法
  * @param element 根元素
  * @param selector Legado 选择器字符串
  * @returns 匹配的元素
  */
 function queryLegadoSelector(element: Element, selector: string): Element | null {
-  // 按 @ 分割链式选择器
-  const parts = selector.split("@");
-  let current: Element | null = element;
-
-  for (const part of parts) {
-    if (!current || !part.trim()) continue;
-
-    current = querySingleLegadoSelector(current, part.trim());
-  }
-
-  return current;
+  const elements = queryLegadoSelectorAll(element, selector);
+  return elements[0] || null;
 }
 
 /**
- * 解析单个 Legado 选择器
+ * 解析 Legado 选择器语法（返回所有匹配元素）
+ * @param element 根元素
+ * @param selector Legado 选择器字符串
+ * @returns 匹配的元素数组
  */
-function querySingleLegadoSelector(element: Element, selector: string): Element | null {
-  // 检查是否是 Legado 索引语法: tag.index 或 tag:index 或 tag.-1
-  const indexMatch = selector.match(/^([a-zA-Z][\w-]*)[.:](-?\d+)$/);
-  if (indexMatch) {
-    const tag = indexMatch[1];
-    const indexStr = indexMatch[2];
-    if (!tag || !indexStr) return null;
-
-    const index = parseInt(indexStr, 10);
-    const elements = element.querySelectorAll(tag);
-
-    if (elements.length === 0) return null;
-
-    // 负数索引从末尾开始
-    const actualIndex = index < 0 ? elements.length + index : index;
-    return elements[actualIndex] || null;
+export function queryLegadoSelectorAll(element: Element, selector: string): Element[] {
+  // 检查列表反序前缀
+  let reverse = false;
+  let selectorToProcess = selector;
+  if (selector.startsWith("-")) {
+    reverse = true;
+    selectorToProcess = selector.slice(1);
   }
 
-  // 检查是否是范围语法: tag.start:end
-  const rangeMatch = selector.match(/^([a-zA-Z][\w-]*)\.(\d+):(\d+)$/);
-  if (rangeMatch) {
-    const tag = rangeMatch[1];
-    const startStr = rangeMatch[2];
-    if (!tag || !startStr) return null;
-
-    const start = parseInt(startStr, 10);
-    const elements = element.querySelectorAll(tag);
-    return elements[start] || null;
+  // 检查 @css: 前缀，使用标准 CSS 选择器
+  if (selectorToProcess.startsWith("@css:")) {
+    const cssSelector = selectorToProcess.slice(5).trim();
+    try {
+      const elements = Array.from(element.querySelectorAll(cssSelector));
+      return reverse ? elements.reverse() : elements;
+    } catch {
+      return [];
+    }
   }
 
-  // 检查 class 选择器简写: .classname
-  if (selector.startsWith(".") && !selector.includes(" ")) {
-    return element.querySelector(selector);
+  // 按 @ 分割链式选择器
+  const parts = selectorToProcess.split("@");
+  let currentElements: Element[] = [element];
+
+  for (const part of parts) {
+    if (!part.trim()) continue;
+
+    const nextElements: Element[] = [];
+    for (const el of currentElements) {
+      const matched = querySingleLegadoSelectorAll(el, part.trim());
+      nextElements.push(...matched);
+    }
+    currentElements = nextElements;
+
+    if (currentElements.length === 0) break;
   }
 
-  // 检查 ID 选择器: #id
+  return reverse ? currentElements.reverse() : currentElements;
+}
+
+/**
+ * 解析单个 Legado 选择器（返回所有匹配元素）
+ * 支持完整的 Legado 语法：
+ * - class.classname.index
+ * - tag.tagname.index
+ * - id.idname
+ * - text.内容
+ * - children.index
+ * - .classname.index (class 简写)
+ * - 数组索引 [0,1,2] 或 [0:5:2]
+ * - 排除语法 [!0,1]
+ */
+function querySingleLegadoSelectorAll(element: Element, selector: string): Element[] {
+  // 1. 检查 class.classname.index 格式
+  const classMatch = selector.match(/^class\.([^.[\]]+)(?:\.(-?\d+))?(?:\[(.+?)\])?$/i);
+  if (classMatch) {
+    const className = classMatch[1];
+    const indexStr = classMatch[2];
+    const arrayIndex = classMatch[3];
+
+    if (!className) return [];
+    const elements = Array.from(element.querySelectorAll(`.${className}`));
+    return applyIndexSelector(elements, indexStr, arrayIndex);
+  }
+
+  // 2. 检查 id.idname 格式
+  const idMatch = selector.match(/^id\.([^.[\]]+)$/i);
+  if (idMatch) {
+    const idName = idMatch[1];
+    if (!idName) return [];
+    const el = element.querySelector(`#${idName}`);
+    return el ? [el] : [];
+  }
+
+  // 3. 检查 tag.tagname.index 格式
+  const tagMatch = selector.match(/^tag\.([a-zA-Z][\w-]*)(?:\.(-?\d+))?(?:\[(.+?)\])?$/i);
+  if (tagMatch) {
+    const tagName = tagMatch[1];
+    const indexStr = tagMatch[2];
+    const arrayIndex = tagMatch[3];
+
+    if (!tagName) return [];
+    const elements = Array.from(element.querySelectorAll(tagName));
+    return applyIndexSelector(elements, indexStr, arrayIndex);
+  }
+
+  // 4. 检查 text.内容 格式（按文本内容匹配）
+  const textMatch = selector.match(/^text\.(.+)$/i);
+  if (textMatch) {
+    const textContent = textMatch[1];
+    if (!textContent) return [];
+    // 查找包含指定文本的元素
+    const allElements = Array.from(element.querySelectorAll("*"));
+    return allElements.filter(el => el.textContent?.includes(textContent));
+  }
+
+  // 5. 检查 children.index 格式
+  const childrenMatch = selector.match(/^children(?:\.(-?\d+))?(?:\[(.+?)\])?$/i);
+  if (childrenMatch) {
+    const indexStr = childrenMatch[1];
+    const arrayIndex = childrenMatch[2];
+    const children = Array.from(element.children);
+    return applyIndexSelector(children, indexStr, arrayIndex);
+  }
+
+  // 6. 检查 .classname.index 简写格式（Legado 特有）
+  const classShortMatch = selector.match(/^\.([^.[\]]+)(?:\.(-?\d+))?(?:\[(.+?)\])?$/);
+  if (classShortMatch) {
+    const className = classShortMatch[1];
+    const indexStr = classShortMatch[2];
+    const arrayIndex = classShortMatch[3];
+
+    if (!className) return [];
+    const elements = Array.from(element.querySelectorAll(`.${className}`));
+    return applyIndexSelector(elements, indexStr, arrayIndex);
+  }
+
+  // 7. 检查 #id 格式
   if (selector.startsWith("#")) {
-    return element.querySelector(selector);
+    const el = element.querySelector(selector);
+    return el ? [el] : [];
   }
 
-  // 尝试作为标准 CSS 选择器
+  // 8. 检查纯标签名.index 格式（如 a.0, li.-1）
+  const simpleTagMatch = selector.match(/^([a-zA-Z][\w-]*)(?:\.(-?\d+))?(?:\[(.+?)\])?$/);
+  if (simpleTagMatch) {
+    const tagName = simpleTagMatch[1];
+    const indexStr = simpleTagMatch[2];
+    const arrayIndex = simpleTagMatch[3];
+
+    if (!tagName) return [];
+
+    // 检查是否是有效的 HTML 标签名
+    const validTags = [
+      "a", "abbr", "address", "article", "aside", "audio", "b", "blockquote", "body",
+      "br", "button", "canvas", "caption", "cite", "code", "col", "colgroup", "data",
+      "datalist", "dd", "del", "details", "dfn", "dialog", "div", "dl", "dt", "em",
+      "embed", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3",
+      "h4", "h5", "h6", "head", "header", "hr", "html", "i", "iframe", "img", "input",
+      "ins", "kbd", "label", "legend", "li", "link", "main", "map", "mark", "meta",
+      "meter", "nav", "noscript", "object", "ol", "optgroup", "option", "output", "p",
+      "param", "picture", "pre", "progress", "q", "rp", "rt", "ruby", "s", "samp",
+      "script", "section", "select", "small", "source", "span", "strong", "style",
+      "sub", "summary", "sup", "table", "tbody", "td", "template", "textarea", "tfoot",
+      "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", "wbr"
+    ];
+
+    if (validTags.includes(tagName.toLowerCase()) || indexStr !== undefined || arrayIndex !== undefined) {
+      const elements = Array.from(element.querySelectorAll(tagName));
+      return applyIndexSelector(elements, indexStr, arrayIndex);
+    }
+  }
+
+  // 9. 尝试作为标准 CSS 选择器
   try {
-    return element.querySelector(selector);
+    return Array.from(element.querySelectorAll(selector));
   } catch {
     // 如果 CSS 选择器无效，尝试作为标签名
-    const elements = element.getElementsByTagName(selector);
-    return elements[0] || null;
+    try {
+      return Array.from(element.getElementsByTagName(selector));
+    } catch {
+      return [];
+    }
   }
+}
+
+/**
+ * 应用索引选择器
+ * 支持：单个索引、数组索引 [0,1,2]、区间 [0:5:2]、排除 [!0,1]
+ * @param elements 元素数组
+ * @param indexStr 单个索引字符串
+ * @param arrayIndex 数组/区间索引字符串
+ * @returns 筛选后的元素数组
+ */
+function applyIndexSelector(
+  elements: Element[],
+  indexStr?: string,
+  arrayIndex?: string
+): Element[] {
+  if (elements.length === 0) return [];
+
+  // 优先处理数组索引
+  if (arrayIndex) {
+    return applyArrayIndex(elements, arrayIndex);
+  }
+
+  // 处理单个索引
+  if (indexStr !== undefined) {
+    const index = parseInt(indexStr, 10);
+    const actualIndex = index < 0 ? elements.length + index : index;
+    const el = elements[actualIndex];
+    return el ? [el] : [];
+  }
+
+  // 无索引返回所有元素
+  return elements;
+}
+
+/**
+ * 应用数组索引
+ * 格式：
+ * - [0,2,4]: 获取第 0、2、4 个
+ * - [!0,2]: 排除第 0、2 个
+ * - [0:5]: 区间（左闭右开）
+ * - [0:10:2]: 带步长的区间
+ * @param elements 元素数组
+ * @param indexExpr 索引表达式
+ * @returns 筛选后的元素数组
+ */
+function applyArrayIndex(elements: Element[], indexExpr: string): Element[] {
+  const len = elements.length;
+  if (len === 0) return [];
+
+  // 检查是否是排除模式
+  const isExclude = indexExpr.startsWith("!");
+  const expr = isExclude ? indexExpr.slice(1) : indexExpr;
+
+  // 检查是否是区间格式 [start:end:step]
+  if (expr.includes(":")) {
+    const parts = expr.split(":").map(p => p.trim());
+    let start = parts[0] ? parseInt(parts[0], 10) : 0;
+    let end = parts[1] ? parseInt(parts[1], 10) : len;
+    const step = parts[2] ? parseInt(parts[2], 10) : 1;
+
+    // 处理负数索引
+    if (start < 0) start = len + start;
+    if (end < 0) end = len + end;
+
+    // 确保范围有效
+    start = Math.max(0, Math.min(start, len));
+    end = Math.max(0, Math.min(end, len));
+
+    const indices: number[] = [];
+    if (step > 0) {
+      for (let i = start; i < end; i += step) {
+        indices.push(i);
+      }
+    } else if (step < 0) {
+      for (let i = start; i > end; i += step) {
+        indices.push(i);
+      }
+    }
+
+    if (isExclude) {
+      const excludeSet = new Set(indices);
+      return elements.filter((_, i) => !excludeSet.has(i));
+    }
+    return indices.map(i => elements[i]).filter((el): el is Element => el !== undefined);
+  }
+
+  // 逗号分隔的索引列表 [0,2,4]
+  const indices = expr.split(",").map(s => {
+    const idx = parseInt(s.trim(), 10);
+    return idx < 0 ? len + idx : idx;
+  });
+
+  if (isExclude) {
+    const excludeSet = new Set(indices);
+    return elements.filter((_, i) => !excludeSet.has(i));
+  }
+  return indices.map(i => elements[i]).filter((el): el is Element => el !== undefined);
 }
 
 /**
@@ -306,10 +543,11 @@ export function executeRuleAll(
     return [];
   }
 
-  const elements = element.querySelectorAll(rule.selector);
+  // 使用 Legado 选择器解析
+  const elements = queryLegadoSelectorAll(element, rule.selector);
   const results: string[] = [];
 
-  elements.forEach((el) => {
+  for (const el of elements) {
     let value = extractAttribute(el, rule.attr);
 
     if (value && rule.regex) {
@@ -319,7 +557,7 @@ export function executeRuleAll(
     if (value) {
       results.push(value);
     }
-  });
+  }
 
   return results;
 }
@@ -407,7 +645,7 @@ function executeJsRule(
     const fn = new Function(...Object.keys(evalContext), `return (${code})`);
     const result = fn(...Object.values(evalContext));
 
-    return result != null ? String(result) : null;
+    return result !== null && result !== undefined ? String(result) : null;
   } catch (error) {
     console.error("JS 规则执行失败:", error);
     return null;
