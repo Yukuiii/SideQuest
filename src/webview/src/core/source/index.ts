@@ -1,10 +1,10 @@
 /**
  * 书源模块导出
+ * 仅支持 Legado 格式
  */
 
 // 类型定义
 export type {
-  EsoSource,
   LegadoSource,
   LegadoSearchRule,
   LegadoExploreRule,
@@ -20,15 +20,6 @@ export type {
 export { BookSourceType } from "./types";
 export type { BookSourceType as BookSourceTypeValue } from "./types";
 
-// ESO 解析器
-export {
-  parseEsoSource,
-  parseEsoSources,
-  convertEsoToUnified,
-  encodeEsoSource,
-  isValidEsoFormat,
-} from "./esoParser";
-
 // Legado 解析器
 export {
   parseLegadoSource,
@@ -38,19 +29,25 @@ export {
   convertLegadoSourcesToUnified,
   encodeLegadoSources,
   isValidLegadoFormat,
-  detectSourceFormat,
 } from "./legadoParser";
 
-// 规则解析器
-export type { ParsedRule, ParsedUrlRule } from "./ruleParser";
+// Legado 规则解析器
+export type { ParsedRule, ParsedUrlRule } from "./legadoRuleParser";
 export {
   parseRule,
   executeRule,
   executeRuleAll,
   parseAndExecute,
   parseUrlRule,
-} from "./ruleParser";
+} from "./legadoRuleParser";
 
 // 书源管理器
-export type { ImportResult } from "./sourceManager";
-export { SourceManager, sourceManager } from "./sourceManager";
+export type { ImportResult, SourceFormat } from "./sourceManager";
+export { SourceManager, sourceManager, detectSourceFormat } from "./sourceManager";
+
+// 书籍服务
+export { searchBooks, getChapters, getContent } from "./bookService";
+
+// 书架服务
+export type { ShelfBook } from "./bookshelf";
+export { Bookshelf, bookshelf } from "./bookshelf";

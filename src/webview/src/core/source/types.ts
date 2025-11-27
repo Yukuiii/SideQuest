@@ -1,5 +1,6 @@
 /**
  * 书源类型定义
+ * 仅支持 Legado 格式
  */
 
 /** 书源内容类型 */
@@ -14,73 +15,6 @@ export const BookSourceType = {
 
 /** 书源内容类型 */
 export type BookSourceType = (typeof BookSourceType)[keyof typeof BookSourceType];
-
-/**
- * ESO 书源格式
- * 格式: eso://:书源名@Base64(Gzip(JSON))
- */
-export interface EsoSource {
-  /** 唯一标识 */
-  id: string;
-  /** 书源名称 */
-  name: string;
-  /** 书源地址 */
-  host: string;
-  /** 分组 */
-  group?: string;
-  /** 内容类型: 0=漫画, 1=小说, 2=视频, 3=音频 */
-  contentType: number;
-  /** 排序 */
-  sort?: number;
-  /** 是否使用 CryptoJS */
-  useCryptoJS?: boolean;
-  /** 加载的 JS */
-  loadJs?: string;
-  /** User-Agent */
-  userAgent?: string;
-
-  // 发现页
-  enableDiscover: boolean;
-  discoverUrl?: string;
-  discoverList?: string;
-  discoverName?: string;
-  discoverCover?: string;
-  discoverAuthor?: string;
-  discoverChapter?: string;
-  discoverDescription?: string;
-  discoverResult?: string;
-  discoverTags?: string;
-
-  // 搜索
-  enableSearch: boolean;
-  searchUrl?: string;
-  searchList?: string;
-  searchName?: string;
-  searchCover?: string;
-  searchAuthor?: string;
-  searchChapter?: string;
-  searchDescription?: string;
-  searchResult?: string;
-  searchTags?: string;
-
-  // 章节
-  chapterUrl?: string;
-  chapterList?: string;
-  chapterName?: string;
-  chapterCover?: string;
-  chapterLock?: string;
-  chapterTime?: string;
-  chapterResult?: string;
-
-  // 内容
-  contentUrl?: string;
-  contentItems?: string;
-
-  // 其他
-  loginUrl?: string;
-  cookies?: string;
-  viewStyle?: number;
-}
 
 /**
  * Legado 书源格式 (阅读 App)
@@ -197,10 +131,8 @@ export interface UnifiedSource {
   group?: string;
   /** 是否启用 */
   enabled: boolean;
-  /** 原始格式: eso | legado */
-  format: "eso" | "legado";
   /** 原始数据 */
-  raw: EsoSource | LegadoSource;
+  raw: LegadoSource;
 }
 
 /**

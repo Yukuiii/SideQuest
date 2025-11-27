@@ -3,18 +3,37 @@
  * 提供书源的增删改查、导入导出等功能
  */
 
-import type { UnifiedSource, EsoSource, LegadoSource, BookSourceType } from "./types";
-import {
-  parseEsoSource,
-  convertEsoToUnified,
-  encodeEsoSource,
-} from "./esoParser";
+import type { UnifiedSource, LegadoSource, BookSourceType } from "./types";
 import {
   parseLegadoSources,
   convertLegadoToUnified,
   encodeLegadoSources,
-  detectSourceFormat,
+  isValidLegadoFormat,
 } from "./legadoParser";
+
+/** 书源格式类型 */
+export type SourceFormat = "legado" | "eso" | "unknown";
+
+/**
+ * 检测书源字符串的格式
+ * @param sourceString 书源字符串
+ * @returns 检测到的格式类型
+ */
+export function detectSourceFormat(sourceString: string): SourceFormat {
+  const trimmed = sourceString.trim();
+
+  // ESO 格式以 eso:// 开头
+  if (trimmed.startsWith("eso://")) {
+    return "eso";
+  }
+
+  // Legado JSON 格式
+  if (isValidLegadoFormat(trimmed)) {
+    return "legado";
+  }
+
+  return "unknown";
+}
 
 /** 书源存储键名 */
 const STORAGE_KEY = "sidequest_sources";
@@ -186,79 +205,68 @@ export class SourceManager {
 
   /**
    * 导入书源字符串
-   * @param sourceString 书源字符串（支持 ESO 或 Legado 格式）
+   * @param sourceString 书源字符串
    * @returns 导入结果
    */
   import(sourceString: string): ImportResult {
-    const trimmed = sourceString.trim();
     const result: ImportResult = {
       success: 0,
       failed: 0,
       errors: [],
     };
 
-    // 检测格式
-    const format = detectSourceFormat(trimmed);
+    const format = detectSourceFormat(sourceString);
 
-    if (format === "eso") {
-      // ESO 格式：可能是多行
-      const lines = trimmed.split("\n").filter((line) => line.trim().startsWith("eso://"));
+    switch (format) {
+      case "legado":
+        return this.importLegado(sourceString, result);
 
-      for (const line of lines) {
-        try {
-          const esoSource = parseEsoSource(line.trim());
-          const unified = convertEsoToUnified(esoSource);
-          this.upsert(unified);
-          result.success++;
-        } catch (error) {
-          result.failed++;
-          result.errors.push(error instanceof Error ? error.message : "解析失败");
-        }
+      case "eso":
+        // TODO: 实现 ESO 书源导入
+        result.errors.push("ESO 格式书源暂不支持，敬请期待");
+        return result;
+
+      case "unknown":
+      default:
+        result.errors.push("无法识别的书源格式，请使用 Legado JSON 格式");
+        return result;
+    }
+  }
+
+  /**
+   * 导入 Legado 格式书源
+   * @param sourceString Legado JSON 字符串
+   * @param result 导入结果对象
+   * @returns 导入结果
+   */
+  private importLegado(sourceString: string, result: ImportResult): ImportResult {
+    try {
+      const legadoSources = parseLegadoSources(sourceString);
+      for (const legadoSource of legadoSources) {
+        const unified = convertLegadoToUnified(legadoSource);
+        this.upsert(unified);
+        result.success++;
       }
-    } else if (format === "legado") {
-      // Legado 格式
-      try {
-        const legadoSources = parseLegadoSources(trimmed);
-        for (const legadoSource of legadoSources) {
-          const unified = convertLegadoToUnified(legadoSource);
-          this.upsert(unified);
-          result.success++;
-        }
-      } catch (error) {
-        result.failed++;
-        result.errors.push(error instanceof Error ? error.message : "解析失败");
-      }
-    } else {
-      result.errors.push("无法识别的书源格式");
+    } catch (error) {
+      result.failed++;
+      result.errors.push(error instanceof Error ? error.message : "解析失败");
     }
 
     return result;
   }
 
   /**
-   * 导出书源
+   * 导出书源为 Legado JSON 格式
    * @param ids 要导出的书源 ID 列表（为空则导出全部）
-   * @param format 导出格式
-   * @returns 导出的字符串
+   * @returns 导出的 JSON 字符串
    */
-  export(ids?: string[], format: "eso" | "legado" = "legado"): string {
+  export(ids?: string[]): string {
     const sourcesToExport = ids
       ? ids.map((id) => this.sources.get(id)).filter((s): s is UnifiedSource => !!s)
       : this.getAll();
 
-    if (format === "eso") {
-      // 导出为 ESO 格式
-      return sourcesToExport
-        .filter((s) => s.format === "eso")
-        .map((s) => encodeEsoSource(s.raw as EsoSource))
-        .join("\n");
-    } else {
-      // 导出为 Legado 格式
-      const legadoSources = sourcesToExport
-        .filter((s) => s.format === "legado")
-        .map((s) => s.raw as LegadoSource);
-      return encodeLegadoSources(legadoSources);
-    }
+    const legadoSources = sourcesToExport.map((s) => s.raw as LegadoSource);
+    return encodeLegadoSources(legadoSources);
   }
 
   /**

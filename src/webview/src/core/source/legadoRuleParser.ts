@@ -1,9 +1,11 @@
 /**
- * 规则解析引擎
- * 支持 Legado 的 CSS 选择器 + @ 语法
+ * Legado 规则解析引擎
+ * 专门用于解析 Legado 书源的规则语法
  *
  * 规则语法说明：
  * - CSS 选择器: div.class, #id, tag
+ * - Legado 索引语法: tag.index (如 span.1 表示第2个span), tag.-1 (最后一个)
+ * - 链式选择器: selector@selector@attr
  * - @text: 获取文本内容
  * - @html: 获取 HTML 内容
  * - @href: 获取链接地址
@@ -91,30 +93,45 @@ export function parseRule(rule: string): ParsedRule {
     };
   }
 
-  // CSS 选择器 + @ 语法
-  let selector = trimmedRule;
-  let attr: string | undefined;
+  // Legado 链式语法: selector@selector@attr##regex##replacement
+  // 例如: span.1@a@text##正则
+  let remaining = trimmedRule;
   let regex: string | undefined;
   let replacement: string | undefined;
 
   // 处理正则 ##
-  const regexMatch = selector.match(/##(.+?)(?:##(.*))?$/);
+  const regexMatch = remaining.match(/##(.+?)(?:##(.*))?$/);
   if (regexMatch) {
     regex = regexMatch[1];
     replacement = regexMatch[2];
-    selector = selector.slice(0, selector.indexOf("##"));
+    remaining = remaining.slice(0, remaining.indexOf("##"));
   }
 
-  // 处理属性 @
-  const attrMatch = selector.match(/@(text|html|href|src|attr\/[\w-]+)$/i);
-  if (attrMatch) {
-    attr = attrMatch[1];
-    selector = selector.slice(0, selector.lastIndexOf("@"));
+  // 按 @ 分割，解析 Legado 链式选择器
+  const parts = remaining.split("@");
+  const selectors: string[] = [];
+  let attr: string | undefined;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]?.trim();
+    if (!part) continue;
+
+    // 最后一个可能是属性
+    if (i === parts.length - 1) {
+      const lowerPart = part.toLowerCase();
+      if (["text", "html", "href", "src", "textNodes", "ownText"].includes(lowerPart) ||
+          lowerPart.startsWith("attr/")) {
+        attr = part;
+        continue;
+      }
+    }
+
+    selectors.push(part);
   }
 
   return {
     type: "css",
-    selector: selector.trim(),
+    selector: selectors.join("@"), // 保留链式选择器供后续解析
     attr,
     regex,
     replacement,
@@ -175,10 +192,10 @@ export function executeRule(
     return applyRegex(element, rule.regex, rule.replacement);
   }
 
-  // CSS 选择器
+  // 解析 Legado 链式选择器
   let targetElement: Element | null = element;
   if (rule.selector) {
-    targetElement = element.querySelector(rule.selector);
+    targetElement = queryLegadoSelector(element, rule.selector);
   }
 
   if (!targetElement) {
@@ -194,6 +211,83 @@ export function executeRule(
   }
 
   return value;
+}
+
+/**
+ * 解析 Legado 选择器语法
+ * 支持: tag.index (如 span.1 表示第2个span)
+ *       tag.-1 (最后一个)
+ *       tag:index (同上)
+ *       tag class (标准 CSS)
+ * @param element 根元素
+ * @param selector Legado 选择器字符串
+ * @returns 匹配的元素
+ */
+function queryLegadoSelector(element: Element, selector: string): Element | null {
+  // 按 @ 分割链式选择器
+  const parts = selector.split("@");
+  let current: Element | null = element;
+
+  for (const part of parts) {
+    if (!current || !part.trim()) continue;
+
+    current = querySingleLegadoSelector(current, part.trim());
+  }
+
+  return current;
+}
+
+/**
+ * 解析单个 Legado 选择器
+ */
+function querySingleLegadoSelector(element: Element, selector: string): Element | null {
+  // 检查是否是 Legado 索引语法: tag.index 或 tag:index 或 tag.-1
+  const indexMatch = selector.match(/^([a-zA-Z][\w-]*)[.:](-?\d+)$/);
+  if (indexMatch) {
+    const tag = indexMatch[1];
+    const indexStr = indexMatch[2];
+    if (!tag || !indexStr) return null;
+
+    const index = parseInt(indexStr, 10);
+    const elements = element.querySelectorAll(tag);
+
+    if (elements.length === 0) return null;
+
+    // 负数索引从末尾开始
+    const actualIndex = index < 0 ? elements.length + index : index;
+    return elements[actualIndex] || null;
+  }
+
+  // 检查是否是范围语法: tag.start:end
+  const rangeMatch = selector.match(/^([a-zA-Z][\w-]*)\.(\d+):(\d+)$/);
+  if (rangeMatch) {
+    const tag = rangeMatch[1];
+    const startStr = rangeMatch[2];
+    if (!tag || !startStr) return null;
+
+    const start = parseInt(startStr, 10);
+    const elements = element.querySelectorAll(tag);
+    return elements[start] || null;
+  }
+
+  // 检查 class 选择器简写: .classname
+  if (selector.startsWith(".") && !selector.includes(" ")) {
+    return element.querySelector(selector);
+  }
+
+  // 检查 ID 选择器: #id
+  if (selector.startsWith("#")) {
+    return element.querySelector(selector);
+  }
+
+  // 尝试作为标准 CSS 选择器
+  try {
+    return element.querySelector(selector);
+  } catch {
+    // 如果 CSS 选择器无效，尝试作为标签名
+    const elements = element.getElementsByTagName(selector);
+    return elements[0] || null;
+  }
 }
 
 /**
@@ -365,19 +459,38 @@ export interface ParsedUrlRule {
  * 解析 URL 规则
  * @param urlRule URL 规则字符串
  * @param searchKey 搜索关键词（用于替换占位符）
+ * @param baseUrl 基础 URL（用于拼接相对路径）
  * @returns 解析后的 URL 配置
  */
-export function parseUrlRule(urlRule: string, searchKey?: string): ParsedUrlRule {
+export function parseUrlRule(urlRule: string, searchKey?: string, baseUrl?: string): ParsedUrlRule {
   let url = urlRule;
   let method: "GET" | "POST" = "GET";
   let body: string | undefined;
   let headers: Record<string, string> | undefined;
   let charset: string | undefined;
 
-  // 替换搜索关键词占位符
+  // 替换搜索关键词占位符（支持多种 Legado 模板语法）
   if (searchKey) {
-    url = url.replace(/\{\{key\}\}/g, encodeURIComponent(searchKey));
-    url = url.replace(/searchKey/g, encodeURIComponent(searchKey));
+    const encodedKey = encodeURIComponent(searchKey);
+    // {{key}} 格式
+    url = url.replace(/\{\{key\}\}/g, encodedKey);
+    // {{encodeURIComponent(key)}} 格式
+    url = url.replace(/\{\{encodeURIComponent\(key\)\}\}/g, encodedKey);
+    // {{java.encodeURI(key)}} 格式
+    url = url.replace(/\{\{java\.encodeURI\(key\)\}\}/g, encodedKey);
+    // searchKey 变量
+    url = url.replace(/searchKey/g, encodedKey);
+    // $key 格式
+    url = url.replace(/\$key/g, encodedKey);
+  }
+
+  // 处理相对 URL
+  if (baseUrl && !url.startsWith("http://") && !url.startsWith("https://")) {
+    // 移除 baseUrl 末尾的斜杠
+    const base = baseUrl.replace(/\/+$/, "");
+    // 确保相对路径以 / 开头
+    const path = url.startsWith("/") ? url : "/" + url;
+    url = base + path;
   }
 
   // 检查是否有 POST 数据

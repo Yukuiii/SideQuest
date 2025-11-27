@@ -119,7 +119,6 @@ export function convertLegadoToUnified(legadoSource: LegadoSource): UnifiedSourc
     type,
     group: legadoSource.bookSourceGroup,
     enabled: legadoSource.enabled ?? true,
-    format: "legado",
     raw: legadoSource,
   };
 }
@@ -180,25 +179,3 @@ function generateSourceId(url: string): string {
   return `legado_${Math.abs(hash).toString(16)}`;
 }
 
-/**
- * 检测书源格式（ESO 或 Legado）
- * @param str 书源字符串
- * @returns 格式类型或 null
- */
-export function detectSourceFormat(str: string): "eso" | "legado" | null {
-  const trimmed = str.trim();
-
-  // ESO 格式以 eso:// 开头
-  if (trimmed.startsWith("eso://")) {
-    return "eso";
-  }
-
-  // 尝试解析为 JSON（Legado 格式）
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    if (isValidLegadoFormat(trimmed)) {
-      return "legado";
-    }
-  }
-
-  return null;
-}
