@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "license": "GPL-3.0",
   "engines": {
-    "vscode": "^1.106.1"
+    "vscode": "^1.98.0"
   },
   "categories": [
     "Other"
@@ -13,6 +13,24 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "side-quest",
+          "title": "Side Quest",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "side-quest": [
+        {
+          "type": "webview",
+          "id": "side-quest.mainView",
+          "name": "Side Quest"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "side-quest.helloWorld",
@@ -35,7 +53,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.106.1",
+    "@types/vscode": "^1.98.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "typescript-eslint": "^8.46.3",
