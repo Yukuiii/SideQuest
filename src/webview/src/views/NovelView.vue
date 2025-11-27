@@ -28,6 +28,8 @@ const loading = ref(false);
 const error = ref("");
 /** 是否显示章节列表 */
 const showChapterList = ref(false);
+/** 待删除的书源 */
+const pendingDeleteSource = ref<{ id: string; name: string } | null>(null);
 
 /** 书架书籍 */
 const shelfBooks = ref(bookshelf.getAll());
@@ -180,6 +182,33 @@ function selectFromShelf(book: BookInfo) {
     return;
   }
   handleSelectBook(book);
+}
+
+/**
+ * 删除书源 - 显示确认对话框
+ */
+function deleteSource(id: string) {
+  const source = sourceManager.getById(id);
+  if (source) {
+    pendingDeleteSource.value = { id, name: source.name };
+  }
+}
+
+/**
+ * 确认删除书源
+ */
+function confirmDeleteSource() {
+  if (pendingDeleteSource.value) {
+    sourceManager.delete(pendingDeleteSource.value.id);
+    pendingDeleteSource.value = null;
+  }
+}
+
+/**
+ * 取消删除书源
+ */
+function cancelDeleteSource() {
+  pendingDeleteSource.value = null;
 }
 
 // 监听书架变更
@@ -347,8 +376,17 @@ bookshelf.onChange((books) => {
                 :key="source.id"
                 class="flex items-center justify-between rounded bg-[var(--vscode-editor-background)] p-2 text-sm"
               >
-                <span>{{ source.name }}</span>
-                <span class="text-xs text-[var(--vscode-descriptionForeground)]">Legado</span>
+                <span class="flex-1 truncate">{{ source.name }}</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-[var(--vscode-descriptionForeground)]">Legado</span>
+                  <button
+                    class="text-red-400 hover:text-red-300 text-xs px-1"
+                    @click="deleteSource(source.id)"
+                    title="删除书源"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -397,6 +435,32 @@ bookshelf.onChange((books) => {
         >
           {{ chapter.name }}
         </button>
+      </div>
+    </div>
+
+    <!-- 删除确认对话框 -->
+    <div
+      v-if="pendingDeleteSource"
+      class="absolute inset-0 flex items-center justify-center bg-black/50"
+    >
+      <div class="rounded bg-[var(--vscode-sideBar-background)] p-4 shadow-lg max-w-[280px]">
+        <div class="mb-4 text-sm">
+          确定要删除书源「{{ pendingDeleteSource.name }}」吗？
+        </div>
+        <div class="flex justify-end gap-2">
+          <button
+            class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-sm text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+            @click="cancelDeleteSource"
+          >
+            取消
+          </button>
+          <button
+            class="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
+            @click="confirmDeleteSource"
+          >
+            删除
+          </button>
+        </div>
       </div>
     </div>
   </div>
