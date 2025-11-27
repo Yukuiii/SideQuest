@@ -1,6 +1,7 @@
 # Side Quest (支线任务) ⚔️
 
 **主线任务交给 AI，支线任务交给你。**
+
 _编程是主线任务 (Main Quest)，等待 AI 生成的时候就是做支线任务的时间。_
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Version](https://img.shields.io/badge/version-0.0.1-green.svg) ![Vibe](https://img.shields.io/badge/Vibe-%E6%8B%89%E6%BB%A1-purple.svg)
