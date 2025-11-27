@@ -358,6 +358,10 @@ function extractAttribute(element: Element, attr?: string): string | null {
 
 /**
  * 应用正则表达式
+ * Legado 规则中 ##正则 的含义：
+ * - ##正则##替换: 替换模式，将匹配内容替换为指定字符串
+ * - ##正则: 删除模式，将匹配内容删除（替换为空）
+ *
  * @param value 输入值
  * @param regex 正则表达式
  * @param replacement 替换字符串
@@ -369,20 +373,11 @@ function applyRegex(value: string, regex?: string, replacement?: string): string
   }
 
   try {
-    const re = new RegExp(regex);
-    const match = value.match(re);
-
-    if (replacement !== undefined) {
-      // 替换模式
-      return value.replace(re, replacement);
-    }
-
-    // 匹配模式：返回第一个捕获组或整个匹配
-    if (match) {
-      return match[1] || match[0];
-    }
-
-    return null;
+    const re = new RegExp(regex, "g");
+    // Legado 规则：无论是否指定 replacement，都是替换模式
+    // 没有 replacement 时默认替换为空字符串（即删除）
+    const result = value.replace(re, replacement ?? "");
+    return result.trim() || null;
   } catch {
     return value;
   }

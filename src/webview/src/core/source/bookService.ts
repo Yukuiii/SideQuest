@@ -108,6 +108,8 @@ export async function getChapters(source: UnifiedSource, book: BookInfo): Promis
  * Legado 格式获取章节
  */
 async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<ChapterInfo[]> {
+  console.log("[getChapters] 开始获取章节列表", { bookUrl: book.bookUrl });
+
   if (!source.ruleToc) {
     throw new Error("书源未配置目录规则");
   }
@@ -116,6 +118,7 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
   let tocUrl = book.bookUrl;
 
   if (source.ruleBookInfo?.tocUrl) {
+    console.log("[getChapters] 需要从书籍详情页提取目录 URL");
     const bookResponse = await httpGet(book.bookUrl);
     if (bookResponse.success && bookResponse.data) {
       const parser = new DOMParser();
@@ -129,8 +132,12 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
     }
   }
 
+  console.log("[getChapters] 获取目录页:", tocUrl);
+
   // 获取目录页
   const response = await httpGet(tocUrl);
+  console.log("[getChapters] 目录页响应:", { success: response.success, hasData: !!response.data, error: response.error });
+
   if (!response.success || !response.data) {
     throw new Error(response.error || "获取目录失败");
   }
@@ -140,14 +147,20 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
 
   // 提取章节列表
   const rules = source.ruleToc;
+  console.log("[getChapters] 目录规则:", rules);
+
   const chapterListRule = parseRule(rules.chapterList || "");
+  console.log("[getChapters] 解析后的章节列表规则:", chapterListRule);
+
   const chapterElements = chapterListRule.selector
     ? doc.querySelectorAll(chapterListRule.selector)
     : [];
 
+  console.log("[getChapters] 找到章节元素数量:", chapterElements.length);
+
   const chapters: ChapterInfo[] = [];
 
-  chapterElements.forEach((element) => {
+  chapterElements.forEach((element, index) => {
     try {
       const chapter: ChapterInfo = {
         name: extractText(element, rules.chapterName) || "",
@@ -164,11 +177,17 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
       if (chapter.name && chapter.url) {
         chapters.push(chapter);
       }
+
+      // 打印前 3 个章节用于调试
+      if (index < 3) {
+        console.log(`[getChapters] 章节 ${index}:`, chapter);
+      }
     } catch (e) {
       console.error("解析章节失败:", e);
     }
   });
 
+  console.log("[getChapters] 解析完成，共", chapters.length, "章");
   return chapters;
 }
 
@@ -198,15 +217,30 @@ async function getContentLegado(source: LegadoSource, chapter: ChapterInfo): Pro
   const parser = new DOMParser();
   const doc = parser.parseFromString(response.data, "text/html");
 
-  // 提取内容
-  const contentRule = parseRule(source.ruleContent.content || "");
+  // 提取内容 - 使用 executeRule 处理 Legado 链式选择器
+  const contentRuleStr = source.ruleContent.content || "";
+  const contentRule = parseRule(contentRuleStr);
   let content = "";
 
-  if (contentRule.selector) {
-    const contentElements = doc.querySelectorAll(contentRule.selector);
-    contentElements.forEach((el) => {
-      content += el.innerHTML + "\n";
-    });
+  // 解析 Legado 链式选择器 (如 #chaptercontent@p)
+  const selectorParts = contentRule.selector.split("@");
+  const baseSelector = selectorParts[0] || "";
+  const subSelector = selectorParts[1];
+
+  if (baseSelector) {
+    const baseElement = doc.querySelector(baseSelector);
+    if (baseElement) {
+      if (subSelector) {
+        // 有子选择器，获取子元素内容
+        const subElements = baseElement.querySelectorAll(subSelector);
+        subElements.forEach((el) => {
+          content += el.innerHTML + "\n";
+        });
+      } else {
+        // 没有子选择器，直接获取内容
+        content = baseElement.innerHTML;
+      }
+    }
   }
 
   // 应用替换规则

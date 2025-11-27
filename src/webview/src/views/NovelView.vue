@@ -74,26 +74,18 @@ async function loadChapters() {
   error.value = "";
 
   try {
-    // 先检查缓存
-    const cached = bookshelf.getCachedChapters(selectedBook.value.bookUrl);
-    if (cached) {
-      chapters.value = cached;
-      // 恢复阅读进度
-      const shelfBook = bookshelf.getByUrl(selectedBook.value.bookUrl);
-      if (shelfBook?.lastChapterIndex !== undefined) {
-        currentChapterIndex.value = shelfBook.lastChapterIndex;
-      }
-      return;
-    }
-
     // 从网络加载
     const result = await getChapters(currentSource.value, selectedBook.value);
     chapters.value = result;
 
-    // 缓存章节列表
-    bookshelf.cacheChapters(selectedBook.value.bookUrl, result);
+    // 恢复阅读进度
+    const shelfBook = bookshelf.getByUrl(selectedBook.value.bookUrl);
+    if (shelfBook?.lastChapterIndex !== undefined) {
+      currentChapterIndex.value = shelfBook.lastChapterIndex;
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : "加载章节失败";
+    console.error("加载章节失败:", e);
   } finally {
     loading.value = false;
   }
@@ -113,20 +105,9 @@ async function readChapter(index: number) {
   const chapter = chapters.value[index];
 
   try {
-    // 先检查缓存
-    const cached = bookshelf.getCachedContent(chapter.url);
-    if (cached) {
-      content.value = cached;
-      updateProgress();
-      return;
-    }
-
     // 从网络加载
     const result = await getContent(currentSource.value, chapter);
     content.value = result;
-
-    // 缓存内容
-    bookshelf.cacheContent(chapter.url, result);
     updateProgress();
   } catch (e) {
     error.value = e instanceof Error ? e.message : "加载内容失败";
