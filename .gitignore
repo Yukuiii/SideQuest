@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Claude
 .claude/
+
+# Cursor
+.cursorrules
