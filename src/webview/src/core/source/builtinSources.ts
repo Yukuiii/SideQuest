@@ -7,13 +7,14 @@ import type { EsoSource } from "./esoTypes";
 import { EsoContentType } from "./esoTypes";
 
 // 导入各站点书源配置
-import { biqugeSource } from "./sites";
+import { biqugeSource, kanshujunSource } from "./sites";
 
 /**
  * 内置书源列表
  */
 export const builtinSources: EsoSource[] = [
   biqugeSource,
+  kanshujunSource,
 ];
 
 /**

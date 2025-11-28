@@ -33,6 +33,7 @@ async function searchBooksEso(
 
   // 解析搜索 URL
   const urlRule = parseEsoUrlRule(source.searchUrl, { keyword }, source.host);
+  console.log("[searchBooks] 请求 URL:", urlRule.url);
 
   // 发起请求
   const response =
@@ -46,9 +47,13 @@ async function searchBooksEso(
           charset: urlRule.charset,
         });
 
+  console.log("[searchBooks] 响应状态码:", response.statusCode);
+  console.log("[searchBooks] 响应内容前 2000 字符:", response.data?.substring(0, 2000));
   if (!response.success || !response.data) {
+    console.log("[searchBooks] 请求失败:", response.error);
     throw new Error(response.error || "请求失败");
   }
+  console.log("[searchBooks] 响应长度:", response.data.length);
 
   // 解析 HTML
   const parser = new DOMParser();
@@ -56,6 +61,7 @@ async function searchBooksEso(
 
   // 提取书籍列表
   const listRule = parseEsoRule(source.searchList);
+  console.log("[searchBooks] 列表选择器:", source.searchList, "解析结果:", listRule);
 
   let bookElements: Element[] = [];
   if (listRule.type === "css" && listRule.selector) {
@@ -65,6 +71,7 @@ async function searchBooksEso(
       // CSS 选择器无效
     }
   }
+  console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);
 
   const books: BookInfo[] = [];
 
