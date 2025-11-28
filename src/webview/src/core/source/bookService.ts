@@ -33,7 +33,6 @@ async function searchBooksEso(
 
   // 解析搜索 URL
   const urlRule = parseEsoUrlRule(source.searchUrl, { keyword }, source.host);
-  console.log("[searchBooks] URL 规则:", urlRule);
 
   // 发起请求
   const response =
@@ -47,9 +46,6 @@ async function searchBooksEso(
           charset: urlRule.charset,
         });
 
-  console.log("[searchBooks] 响应:", { success: response.success, hasData: !!response.data, error: response.error });
-  console.log("[searchBooks] 响应内容前 2000 字符:", response.data?.slice(0, 2000));
-
   if (!response.success || !response.data) {
     throw new Error(response.error || "请求失败");
   }
@@ -60,7 +56,6 @@ async function searchBooksEso(
 
   // 提取书籍列表
   const listRule = parseEsoRule(source.searchList);
-  console.log("[searchBooks] 列表规则:", listRule);
 
   let bookElements: Element[] = [];
   if (listRule.type === "css" && listRule.selector) {
@@ -71,21 +66,10 @@ async function searchBooksEso(
     }
   }
 
-  console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);
-
   const books: BookInfo[] = [];
 
-  bookElements.forEach((element, index) => {
+  bookElements.forEach((element) => {
     try {
-      // 调试前3个元素
-      if (index < 3) {
-        console.log(`[searchBooks] 元素 ${index} HTML:`, element.outerHTML.slice(0, 500));
-        console.log(`[searchBooks] 元素 ${index} name 规则:`, source.searchName);
-        console.log(`[searchBooks] 元素 ${index} name 结果:`, extractText(element, source.searchName));
-        console.log(`[searchBooks] 元素 ${index} searchResult 规则:`, source.searchResult);
-        console.log(`[searchBooks] 元素 ${index} searchResult 结果:`, extractText(element, source.searchResult));
-      }
-
       const book: BookInfo = {
         name: extractText(element, source.searchName) || "",
         author: extractText(element, source.searchAuthor),
@@ -107,8 +91,8 @@ async function searchBooksEso(
       if (book.name && book.bookUrl) {
         books.push(book);
       }
-    } catch (e) {
-      console.error("解析书籍失败:", e);
+    } catch {
+      // 解析书籍失败，跳过
     }
   });
 
@@ -129,8 +113,6 @@ export async function getChapters(source: UnifiedSource, book: BookInfo): Promis
  * ESO 格式获取章节
  */
 async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<ChapterInfo[]> {
-  console.log("[getChapters] 开始获取章节列表", { bookUrl: book.bookUrl });
-
   if (!source.chapterList) {
     throw new Error("书源未配置章节列表规则");
   }
@@ -142,11 +124,8 @@ async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<Chapte
     chapterUrl = urlRule.url;
   }
 
-  console.log("[getChapters] 获取目录页:", chapterUrl);
-
   // 获取目录页
   const response = await httpGet(chapterUrl);
-  console.log("[getChapters] 目录页响应:", { success: response.success, hasData: !!response.data, error: response.error });
 
   if (!response.success || !response.data) {
     throw new Error(response.error || "获取目录失败");
@@ -157,7 +136,6 @@ async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<Chapte
 
   // 提取章节列表
   const listRule = parseEsoRule(source.chapterList);
-  console.log("[getChapters] 解析后的章节列表规则:", listRule);
 
   let chapterElements: Element[] = [];
   if (listRule.type === "css" && listRule.selector) {
@@ -168,11 +146,9 @@ async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<Chapte
     }
   }
 
-  console.log("[getChapters] 找到章节元素数量:", chapterElements.length);
-
   const chapters: ChapterInfo[] = [];
 
-  chapterElements.forEach((element, index) => {
+  chapterElements.forEach((element) => {
     try {
       const chapter: ChapterInfo = {
         name: extractText(element, source.chapterName) || "",
@@ -188,17 +164,11 @@ async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<Chapte
       if (chapter.name && chapter.url) {
         chapters.push(chapter);
       }
-
-      // 打印前 3 个章节用于调试
-      if (index < 3) {
-        console.log(`[getChapters] 章节 ${index}:`, chapter);
-      }
-    } catch (e) {
-      console.error("解析章节失败:", e);
+    } catch {
+      // 解析章节失败，跳过
     }
   });
 
-  console.log("[getChapters] 解析完成，共", chapters.length, "章");
   return chapters;
 }
 

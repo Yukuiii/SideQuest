@@ -12,6 +12,7 @@ import {
   encodeEsoSources,
   isValidEsoFormat,
 } from "./esoParser";
+import { builtinSources } from "./builtinSources";
 
 /** 书源格式类型 */
 export type SourceFormat = "eso" | "unknown";
@@ -49,7 +50,21 @@ export class SourceManager {
    * 创建书源管理器实例
    */
   constructor() {
+    this.loadBuiltinSources();
     this.loadFromStorage();
+  }
+
+  /**
+   * 加载内置书源
+   */
+  private loadBuiltinSources(): void {
+    for (const esoSource of builtinSources) {
+      const unified = convertEsoToUnified(esoSource);
+      // 内置书源不覆盖用户已有的书源
+      if (!this.sources.has(unified.id)) {
+        this.sources.set(unified.id, unified);
+      }
+    }
   }
 
   /**
@@ -234,19 +249,15 @@ export class SourceManager {
   private importEso(sourceString: string, result: ImportResult): ImportResult {
     try {
       const esoSources = parseEsoSources(sourceString);
-      console.log("[importEso] 解析到", esoSources.length, "个书源");
 
       for (const esoSource of esoSources) {
-        console.log("[importEso] 原始书源:", esoSource);
         const unified = convertEsoToUnified(esoSource);
-        console.log("[importEso] 转换后的统一格式:", unified);
         this.upsert(unified);
         result.success++;
       }
     } catch (error) {
       result.failed++;
       result.errors.push(error instanceof Error ? error.message : "解析失败");
-      console.error("[importEso] 解析失败:", error);
     }
 
     return result;
