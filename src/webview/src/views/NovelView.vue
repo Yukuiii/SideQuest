@@ -239,21 +239,21 @@ function confirmDeleteSource() {
       </div>
 
       <!-- 内容区域 -->
-      <div class="flex-1 overflow-auto p-4">
+      <div class="flex flex-1 flex-col overflow-hidden p-4">
         <!-- 搜索 -->
-        <template v-if="activeTab === 'search'">
+        <div v-if="activeTab === 'search'" class="flex-1 overflow-hidden">
           <BookList @select="handleSelectBook" />
-        </template>
+        </div>
 
         <!-- 书源导入 -->
-        <template v-else-if="activeTab === 'import'">
+        <div v-else-if="activeTab === 'import'" class="flex flex-1 flex-col overflow-hidden">
           <SourceImport @imported="activeTab = 'search'" />
           <!-- 已导入的书源 -->
-          <div class="mt-4">
+          <div class="mt-4 flex flex-1 flex-col overflow-hidden">
             <div class="mb-2 text-sm text-[var(--vscode-descriptionForeground)]">
               已导入 {{ sourceManager.getAll().length }} 个书源
             </div>
-            <div class="flex flex-col gap-1">
+            <div class="flex flex-1 flex-col gap-1 overflow-y-auto">
               <div
                 v-for="source in sourceManager.getAll()"
                 :key="source.id"
@@ -273,7 +273,7 @@ function confirmDeleteSource() {
               </div>
             </div>
           </div>
-        </template>
+        </div>
       </div>
     </template>
 

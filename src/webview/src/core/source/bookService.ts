@@ -217,11 +217,20 @@ async function getContentEso(source: EsoSource, chapter: ChapterInfo): Promise<s
   let content = "";
 
   if (contentRule.type === "css" && contentRule.selector) {
-    const contentElement = doc.querySelector(contentRule.selector);
-    if (contentElement) {
-      content = contentRule.attr === "text"
-        ? contentElement.textContent || ""
-        : contentElement.innerHTML;
+    // 使用 querySelectorAll 选择所有匹配元素
+    const contentElements = doc.querySelectorAll(contentRule.selector);
+    if (contentElements.length > 0) {
+      const contents: string[] = [];
+      contentElements.forEach((element) => {
+        const text = contentRule.attr === "text"
+          ? element.textContent || ""
+          : element.innerHTML;
+        if (text.trim()) {
+          // 用 <p> 标签包裹每个段落，确保 HTML 渲染时换行
+          contents.push(`<p>${text}</p>`);
+        }
+      });
+      content = contents.join("");
     }
   } else {
     // 尝试直接执行规则

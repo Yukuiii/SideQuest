@@ -92,7 +92,7 @@ defineExpose({ refreshSources });
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex h-full flex-col gap-3">
     <!-- 书源选择 -->
     <div class="flex flex-col gap-1">
       <label class="text-xs text-[var(--vscode-descriptionForeground)]">选择书源</label>
@@ -131,11 +131,11 @@ defineExpose({ refreshSources });
     </div>
 
     <!-- 书籍列表 -->
-    <div v-if="books.length > 0" class="flex flex-col gap-2">
+    <div v-if="books.length > 0" class="flex flex-1 flex-col gap-2 overflow-hidden">
       <div class="text-xs text-[var(--vscode-descriptionForeground)]">
         找到 {{ books.length }} 本书籍
       </div>
-      <div class="max-h-[300px] overflow-y-auto">
+      <div class="flex-1 overflow-y-auto">
         <div
           v-for="book in books"
           :key="book.bookUrl"
