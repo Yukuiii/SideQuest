@@ -37,10 +37,6 @@ export { SourceManager, sourceManager, detectSourceFormat } from "./sourceManage
 // 书籍服务
 export { searchBooks, getChapters, getContent } from "./bookService";
 
-// 书架服务
-export type { ShelfBook } from "./bookshelf";
-export { Bookshelf, bookshelf } from "./bookshelf";
-
 // 内置书源
 export {
   builtinSources,

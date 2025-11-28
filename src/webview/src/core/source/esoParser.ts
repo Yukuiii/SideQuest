@@ -357,14 +357,22 @@ export function parseEsoRule(rule: string): EsoParsedRule {
   }
 
   // 默认作为 CSS 选择器处理
-  // 解析 CSS 选择器和属性 (格式: selector@attr)
+  // 解析 CSS 选择器和属性 (格式: selector@attr 或 @attr)
   let selector = remaining;
   let attr: string | undefined;
 
-  const attrMatch = remaining.match(/^(.+?)@(\w+)$/);
-  if (attrMatch) {
-    selector = attrMatch[1]?.trim() || "";
-    attr = attrMatch[2];
+  // 检查纯属性格式 @attr（没有选择器，表示从当前元素提取）
+  const pureAttrMatch = remaining.match(/^@(\w+)$/);
+  if (pureAttrMatch) {
+    selector = "";
+    attr = pureAttrMatch[1];
+  } else {
+    // 检查 selector@attr 格式
+    const attrMatch = remaining.match(/^(.+?)@(\w+)$/);
+    if (attrMatch) {
+      selector = attrMatch[1]?.trim() || "";
+      attr = attrMatch[2];
+    }
   }
 
   return {

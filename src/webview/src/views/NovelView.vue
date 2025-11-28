@@ -9,12 +9,12 @@ import SourceImport from "../components/SourceImport.vue";
 import BookList from "../components/BookList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { BookInfo, ChapterInfo } from "../core/source";
-import { sourceManager, getChapters, getContent, bookshelf } from "../core/source";
+import { sourceManager, getChapters, getContent } from "../core/source";
 
 const router = useRouter();
 
 /** 当前标签页 */
-const activeTab = ref<"shelf" | "search" | "import">("shelf");
+const activeTab = ref<"search" | "import">("search");
 /** 当前选中的书籍 */
 const selectedBook = ref<BookInfo | null>(null);
 /** 章节列表 */
@@ -33,9 +33,6 @@ const showChapterList = ref(false);
 const showDeleteConfirm = ref(false);
 /** 待删除的书源 */
 const pendingDeleteSource = ref<{ id: string; name: string } | null>(null);
-
-/** 书架书籍 */
-const shelfBooks = ref(bookshelf.getAll());
 
 /** 当前书源 */
 const currentSource = computed(() => {
@@ -79,15 +76,8 @@ async function loadChapters() {
   error.value = "";
 
   try {
-    // 从网络加载
     const result = await getChapters(currentSource.value, selectedBook.value);
     chapters.value = result;
-
-    // 恢复阅读进度
-    const shelfBook = bookshelf.getByUrl(selectedBook.value.bookUrl);
-    if (shelfBook?.lastChapterIndex !== undefined) {
-      currentChapterIndex.value = shelfBook.lastChapterIndex;
-    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : "加载章节失败";
     console.error("加载章节失败:", e);
@@ -110,29 +100,13 @@ async function readChapter(index: number) {
   const chapter = chapters.value[index];
 
   try {
-    // 从网络加载
     const result = await getContent(currentSource.value, chapter);
     content.value = result;
-    updateProgress();
   } catch (e) {
     error.value = e instanceof Error ? e.message : "加载内容失败";
   } finally {
     loading.value = false;
   }
-}
-
-/**
- * 更新阅读进度
- */
-function updateProgress() {
-  if (!selectedBook.value || !currentChapter.value) return;
-
-  bookshelf.updateProgress(
-    selectedBook.value.bookUrl,
-    currentChapterIndex.value,
-    currentChapter.value.name,
-    chapters.value.length
-  );
 }
 
 /**
@@ -151,40 +125,6 @@ function nextChapter() {
   if (currentChapterIndex.value < chapters.value.length - 1) {
     readChapter(currentChapterIndex.value + 1);
   }
-}
-
-/**
- * 加入书架
- */
-function addToShelf() {
-  if (!selectedBook.value) return;
-
-  if (bookshelf.has(selectedBook.value.bookUrl)) {
-    bookshelf.remove(selectedBook.value.bookUrl);
-  } else {
-    bookshelf.add(selectedBook.value);
-  }
-  shelfBooks.value = bookshelf.getAll();
-}
-
-/**
- * 是否已在书架
- */
-const isInShelf = computed(() => {
-  return selectedBook.value ? bookshelf.has(selectedBook.value.bookUrl) : false;
-});
-
-/**
- * 从书架选择书籍
- */
-function selectFromShelf(book: BookInfo) {
-  // 获取对应的书源
-  const source = sourceManager.getById(book.sourceId);
-  if (!source) {
-    error.value = "书源已删除，无法打开";
-    return;
-  }
-  handleSelectBook(book);
 }
 
 /**
@@ -207,11 +147,6 @@ function confirmDeleteSource() {
     pendingDeleteSource.value = null;
   }
 }
-
-// 监听书架变更
-bookshelf.onChange((books) => {
-  shelfBooks.value = books;
-});
 </script>
 
 <template>
@@ -228,16 +163,6 @@ bookshelf.onChange((books) => {
       <span class="flex-1 font-medium truncate">
         {{ selectedBook ? selectedBook.name : "📚 阅读者" }}
       </span>
-      <!-- 加入书架按钮 -->
-      <button
-        v-if="selectedBook"
-        class="text-sm px-2 py-0.5 rounded"
-        :class="isInShelf ? 'text-yellow-400' : 'text-[var(--vscode-descriptionForeground)]'"
-        @click="addToShelf"
-        :title="isInShelf ? '从书架移除' : '加入书架'"
-      >
-        {{ isInShelf ? "★" : "☆" }}
-      </button>
     </div>
 
     <!-- 阅读内容 -->
@@ -299,13 +224,6 @@ bookshelf.onChange((books) => {
       <div class="flex border-b border-[var(--vscode-panel-border)]">
         <button
           class="flex-1 py-2 text-sm"
-          :class="activeTab === 'shelf' ? 'border-b-2 border-[var(--vscode-textLink-foreground)] text-[var(--vscode-textLink-foreground)]' : 'text-[var(--vscode-descriptionForeground)]'"
-          @click="activeTab = 'shelf'"
-        >
-          书架
-        </button>
-        <button
-          class="flex-1 py-2 text-sm"
           :class="activeTab === 'search' ? 'border-b-2 border-[var(--vscode-textLink-foreground)] text-[var(--vscode-textLink-foreground)]' : 'text-[var(--vscode-descriptionForeground)]'"
           @click="activeTab = 'search'"
         >
@@ -322,40 +240,8 @@ bookshelf.onChange((books) => {
 
       <!-- 内容区域 -->
       <div class="flex-1 overflow-auto p-4">
-        <!-- 书架 -->
-        <template v-if="activeTab === 'shelf'">
-          <div v-if="shelfBooks.length > 0" class="flex flex-col gap-2">
-            <div
-              v-for="book in shelfBooks"
-              :key="book.bookUrl"
-              class="flex cursor-pointer gap-2 rounded p-2 hover:bg-[var(--vscode-list-hoverBackground)]"
-              @click="selectFromShelf(book)"
-            >
-              <div
-                class="h-16 w-12 flex-shrink-0 rounded bg-[var(--vscode-editor-background)] bg-cover bg-center"
-                :style="book.coverUrl ? { backgroundImage: `url(${book.coverUrl})` } : {}"
-              ></div>
-              <div class="flex flex-1 flex-col justify-center overflow-hidden">
-                <div class="truncate font-medium">{{ book.name }}</div>
-                <div class="truncate text-xs text-[var(--vscode-descriptionForeground)]">
-                  {{ book.author || "未知作者" }}
-                </div>
-                <div v-if="book.lastChapterName" class="truncate text-xs text-[var(--vscode-descriptionForeground)]">
-                  读到：{{ book.lastChapterName }}
-                </div>
-              </div>
-              <div v-if="book.progress" class="self-center text-xs text-[var(--vscode-descriptionForeground)]">
-                {{ book.progress }}%
-              </div>
-            </div>
-          </div>
-          <div v-else class="py-8 text-center text-sm text-[var(--vscode-descriptionForeground)]">
-            书架空空如也，去搜索添加书籍吧
-          </div>
-        </template>
-
         <!-- 搜索 -->
-        <template v-else-if="activeTab === 'search'">
+        <template v-if="activeTab === 'search'">
           <BookList @select="handleSelectBook" />
         </template>
 
