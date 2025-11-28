@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 书源导入组件
- * 支持导入 Legado 格式书源，ESO 格式待支持
+ * 支持导入 ESO 格式书源
  */
 import { ref } from "vue";
 import { sourceManager } from "../core/source";
@@ -74,13 +74,13 @@ function handleClear() {
 <template>
   <div class="flex flex-col gap-3">
     <div class="text-sm text-[var(--vscode-descriptionForeground)]">
-      粘贴书源内容（支持 Legado JSON / ESO 格式）
+      粘贴书源内容（支持 ESO JSON 格式）
     </div>
 
     <textarea
       v-model="inputText"
       class="min-h-[120px] w-full resize-y rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] p-2 text-sm text-[var(--vscode-input-foreground)] placeholder:text-[var(--vscode-input-placeholderForeground)] focus:border-[var(--vscode-focusBorder)] focus:outline-none"
-      placeholder="eso://... 或 JSON 格式书源"
+      placeholder="ESO JSON 格式书源"
       :disabled="importing"
     ></textarea>
 

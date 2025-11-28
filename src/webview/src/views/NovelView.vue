@@ -375,7 +375,7 @@ bookshelf.onChange((books) => {
               >
                 <span class="flex-1 truncate">{{ source.name }}</span>
                 <div class="flex items-center gap-2">
-                  <span class="text-xs text-[var(--vscode-descriptionForeground)]">Legado</span>
+                  <span class="text-xs text-[var(--vscode-descriptionForeground)]">ESO</span>
                   <button
                     class="text-red-400 hover:text-red-300 text-xs px-1"
                     @click="deleteSource(source.id)"

@@ -1,12 +1,13 @@
 /**
  * 书籍服务
  * 提供搜索、获取章节列表、获取内容等功能
- * 仅支持 Legado 格式
+ * 仅支持 ESO 格式
  */
 
 import { httpGet, httpPost } from "../../utils/vscode";
-import type { UnifiedSource, BookInfo, ChapterInfo, LegadoSource } from "./types";
-import { parseRule, executeRule, parseUrlRule, queryLegadoSelectorAll } from "./legadoRuleParser";
+import type { UnifiedSource, BookInfo, ChapterInfo } from "./types";
+import type { EsoSource } from "./esoParser";
+import { parseEsoRule, executeEsoRule, parseEsoUrlRule } from "./esoParser";
 
 /**
  * 搜索书籍
@@ -15,23 +16,23 @@ import { parseRule, executeRule, parseUrlRule, queryLegadoSelectorAll } from "./
  * @returns 书籍列表
  */
 export async function searchBooks(source: UnifiedSource, keyword: string): Promise<BookInfo[]> {
-  return searchBooksLegado(source.raw, keyword, source.id);
+  return searchBooksEso(source.raw, keyword, source.id);
 }
 
 /**
- * Legado 格式书源搜索
+ * ESO 格式书源搜索
  */
-async function searchBooksLegado(
-  source: LegadoSource,
+async function searchBooksEso(
+  source: EsoSource,
   keyword: string,
   sourceId: string
 ): Promise<BookInfo[]> {
-  if (!source.searchUrl || !source.ruleSearch) {
+  if (!source.searchUrl || !source.searchList) {
     throw new Error("书源未配置搜索规则");
   }
 
-  // 解析搜索 URL（传入 baseUrl 用于拼接相对路径）
-  const urlRule = parseUrlRule(source.searchUrl, keyword, source.bookSourceUrl);
+  // 解析搜索 URL
+  const urlRule = parseEsoUrlRule(source.searchUrl, { keyword }, source.host);
   console.log("[searchBooks] URL 规则:", urlRule);
 
   // 发起请求
@@ -57,21 +58,18 @@ async function searchBooksLegado(
   const parser = new DOMParser();
   const doc = parser.parseFromString(response.data, "text/html");
 
-  // 调试：检查是否有 .sone 元素
-  console.log("[searchBooks] 页面中 .sone 元素数量:", doc.querySelectorAll(".sone").length);
-  console.log("[searchBooks] 页面 body 前 1000 字符:", doc.body?.innerHTML.slice(0, 1000));
-
   // 提取书籍列表
-  const rules = source.ruleSearch;
-  console.log("[searchBooks] 搜索规则:", rules);
+  const listRule = parseEsoRule(source.searchList);
+  console.log("[searchBooks] 列表规则:", listRule);
 
-  const bookListRule = parseRule(rules.bookList || "");
-  console.log("[searchBooks] 书籍列表规则:", bookListRule);
-
-  // 使用 Legado 选择器解析（支持 @ 链式语法）
-  const bookElements = bookListRule.selector
-    ? queryLegadoSelectorAll(doc.documentElement, bookListRule.selector)
-    : [doc.documentElement];
+  let bookElements: Element[] = [];
+  if (listRule.type === "css" && listRule.selector) {
+    try {
+      bookElements = Array.from(doc.querySelectorAll(listRule.selector));
+    } catch {
+      // CSS 选择器无效
+    }
+  }
 
   console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);
 
@@ -82,29 +80,28 @@ async function searchBooksLegado(
       // 调试前3个元素
       if (index < 3) {
         console.log(`[searchBooks] 元素 ${index} HTML:`, element.outerHTML.slice(0, 500));
-        console.log(`[searchBooks] 元素 ${index} name 规则:`, rules.name);
-        console.log(`[searchBooks] 元素 ${index} name 结果:`, extractText(element, rules.name));
-        console.log(`[searchBooks] 元素 ${index} bookUrl 规则:`, rules.bookUrl);
-        console.log(`[searchBooks] 元素 ${index} bookUrl 结果:`, extractText(element, rules.bookUrl));
+        console.log(`[searchBooks] 元素 ${index} name 规则:`, source.searchName);
+        console.log(`[searchBooks] 元素 ${index} name 结果:`, extractText(element, source.searchName));
+        console.log(`[searchBooks] 元素 ${index} searchResult 规则:`, source.searchResult);
+        console.log(`[searchBooks] 元素 ${index} searchResult 结果:`, extractText(element, source.searchResult));
       }
 
       const book: BookInfo = {
-        name: extractText(element, rules.name) || "",
-        author: extractText(element, rules.author),
-        coverUrl: extractText(element, rules.coverUrl),
-        intro: extractText(element, rules.intro),
-        kind: extractText(element, rules.kind),
-        lastChapter: extractText(element, rules.lastChapter),
-        bookUrl: extractText(element, rules.bookUrl) || "",
+        name: extractText(element, source.searchName) || "",
+        author: extractText(element, source.searchAuthor),
+        coverUrl: extractText(element, source.searchCover),
+        intro: extractText(element, source.searchDescription),
+        lastChapter: extractText(element, source.searchChapter),
+        bookUrl: extractText(element, source.searchResult) || "",
         sourceId,
       };
 
       // 处理相对 URL
       if (book.bookUrl && !book.bookUrl.startsWith("http")) {
-        book.bookUrl = new URL(book.bookUrl, source.bookSourceUrl).href;
+        book.bookUrl = new URL(book.bookUrl, source.host).href;
       }
       if (book.coverUrl && !book.coverUrl.startsWith("http")) {
-        book.coverUrl = new URL(book.coverUrl, source.bookSourceUrl).href;
+        book.coverUrl = new URL(book.coverUrl, source.host).href;
       }
 
       if (book.name && book.bookUrl) {
@@ -125,41 +122,30 @@ async function searchBooksLegado(
  * @returns 章节列表
  */
 export async function getChapters(source: UnifiedSource, book: BookInfo): Promise<ChapterInfo[]> {
-  return getChaptersLegado(source.raw, book);
+  return getChaptersEso(source.raw, book);
 }
 
 /**
- * Legado 格式获取章节
+ * ESO 格式获取章节
  */
-async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<ChapterInfo[]> {
+async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<ChapterInfo[]> {
   console.log("[getChapters] 开始获取章节列表", { bookUrl: book.bookUrl });
 
-  if (!source.ruleToc) {
-    throw new Error("书源未配置目录规则");
+  if (!source.chapterList) {
+    throw new Error("书源未配置章节列表规则");
   }
 
-  // 先获取书籍详情页（可能包含目录 URL）
-  let tocUrl = book.bookUrl;
-
-  if (source.ruleBookInfo?.tocUrl) {
-    console.log("[getChapters] 需要从书籍详情页提取目录 URL");
-    const bookResponse = await httpGet(book.bookUrl);
-    if (bookResponse.success && bookResponse.data) {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(bookResponse.data, "text/html");
-      const extractedTocUrl = extractText(doc.documentElement, source.ruleBookInfo.tocUrl);
-      if (extractedTocUrl) {
-        tocUrl = extractedTocUrl.startsWith("http")
-          ? extractedTocUrl
-          : new URL(extractedTocUrl, source.bookSourceUrl).href;
-      }
-    }
+  // 构建章节列表 URL
+  let chapterUrl = book.bookUrl;
+  if (source.chapterUrl) {
+    const urlRule = parseEsoUrlRule(source.chapterUrl, { result: book.bookUrl }, source.host);
+    chapterUrl = urlRule.url;
   }
 
-  console.log("[getChapters] 获取目录页:", tocUrl);
+  console.log("[getChapters] 获取目录页:", chapterUrl);
 
   // 获取目录页
-  const response = await httpGet(tocUrl);
+  const response = await httpGet(chapterUrl);
   console.log("[getChapters] 目录页响应:", { success: response.success, hasData: !!response.data, error: response.error });
 
   if (!response.success || !response.data) {
@@ -170,15 +156,17 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
   const doc = parser.parseFromString(response.data, "text/html");
 
   // 提取章节列表
-  const rules = source.ruleToc;
-  console.log("[getChapters] 目录规则:", rules);
+  const listRule = parseEsoRule(source.chapterList);
+  console.log("[getChapters] 解析后的章节列表规则:", listRule);
 
-  const chapterListRule = parseRule(rules.chapterList || "");
-  console.log("[getChapters] 解析后的章节列表规则:", chapterListRule);
-
-  const chapterElements = chapterListRule.selector
-    ? doc.querySelectorAll(chapterListRule.selector)
-    : [];
+  let chapterElements: Element[] = [];
+  if (listRule.type === "css" && listRule.selector) {
+    try {
+      chapterElements = Array.from(doc.querySelectorAll(listRule.selector));
+    } catch {
+      // CSS 选择器无效
+    }
+  }
 
   console.log("[getChapters] 找到章节元素数量:", chapterElements.length);
 
@@ -187,15 +175,14 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
   chapterElements.forEach((element, index) => {
     try {
       const chapter: ChapterInfo = {
-        name: extractText(element, rules.chapterName) || "",
-        url: extractText(element, rules.chapterUrl) || "",
-        isLocked: rules.isVip ? !!extractText(element, rules.isVip) : false,
-        updateTime: extractText(element, rules.updateTime) || undefined,
+        name: extractText(element, source.chapterName) || "",
+        url: extractText(element, source.chapterResult) || "",
+        updateTime: extractText(element, source.chapterTime) || undefined,
       };
 
       // 处理相对 URL
       if (chapter.url && !chapter.url.startsWith("http")) {
-        chapter.url = new URL(chapter.url, source.bookSourceUrl).href;
+        chapter.url = new URL(chapter.url, source.host).href;
       }
 
       if (chapter.name && chapter.url) {
@@ -222,18 +209,25 @@ async function getChaptersLegado(source: LegadoSource, book: BookInfo): Promise<
  * @returns 章节内容（HTML 或纯文本）
  */
 export async function getContent(source: UnifiedSource, chapter: ChapterInfo): Promise<string> {
-  return getContentLegado(source.raw, chapter);
+  return getContentEso(source.raw, chapter);
 }
 
 /**
- * Legado 格式获取内容
+ * ESO 格式获取内容
  */
-async function getContentLegado(source: LegadoSource, chapter: ChapterInfo): Promise<string> {
-  if (!source.ruleContent) {
+async function getContentEso(source: EsoSource, chapter: ChapterInfo): Promise<string> {
+  if (!source.contentItems) {
     throw new Error("书源未配置正文规则");
   }
 
-  const response = await httpGet(chapter.url);
+  // 构建正文 URL
+  let contentUrl = chapter.url;
+  if (source.contentUrl) {
+    const urlRule = parseEsoUrlRule(source.contentUrl, { result: chapter.url }, source.host);
+    contentUrl = urlRule.url;
+  }
+
+  const response = await httpGet(contentUrl);
   if (!response.success || !response.data) {
     throw new Error(response.error || "获取内容失败");
   }
@@ -241,46 +235,23 @@ async function getContentLegado(source: LegadoSource, chapter: ChapterInfo): Pro
   const parser = new DOMParser();
   const doc = parser.parseFromString(response.data, "text/html");
 
-  // 提取内容 - 使用 executeRule 处理 Legado 链式选择器
-  const contentRuleStr = source.ruleContent.content || "";
-  const contentRule = parseRule(contentRuleStr);
+  // 提取内容
+  const contentRule = parseEsoRule(source.contentItems);
   let content = "";
 
-  // 解析 Legado 链式选择器 (如 #chaptercontent@p)
-  const selectorParts = contentRule.selector.split("@");
-  const baseSelector = selectorParts[0] || "";
-  const subSelector = selectorParts[1];
-
-  if (baseSelector) {
-    const baseElement = doc.querySelector(baseSelector);
-    if (baseElement) {
-      if (subSelector) {
-        // 有子选择器，获取子元素内容
-        const subElements = baseElement.querySelectorAll(subSelector);
-        subElements.forEach((el) => {
-          content += el.innerHTML + "\n";
-        });
-      } else {
-        // 没有子选择器，直接获取内容
-        content = baseElement.innerHTML;
-      }
+  if (contentRule.type === "css" && contentRule.selector) {
+    const contentElement = doc.querySelector(contentRule.selector);
+    if (contentElement) {
+      content = contentRule.attr === "text"
+        ? contentElement.textContent || ""
+        : contentElement.innerHTML;
     }
-  }
-
-  // 应用替换规则
-  if (source.ruleContent.replaceRegex) {
-    const replaceRules = source.ruleContent.replaceRegex.split("&&");
-    replaceRules.forEach((rule) => {
-      const parts = rule.split("##");
-      if (parts.length >= 1 && parts[0]) {
-        try {
-          const regex = new RegExp(parts[0], "g");
-          content = content.replace(regex, parts[1] || "");
-        } catch {
-          // 忽略无效正则
-        }
-      }
-    });
+  } else {
+    // 尝试直接执行规则
+    const result = executeEsoRule(doc.documentElement, contentRule);
+    if (result) {
+      content = Array.isArray(result) ? result.join("\n") : result;
+    }
   }
 
   return content;
@@ -297,8 +268,8 @@ function extractText(element: Element, rule?: string): string | undefined {
     return undefined;
   }
 
-  const parsedRule = parseRule(rule);
-  const result = executeRule(element, parsedRule);
+  const parsedRule = parseEsoRule(rule);
+  const result = executeEsoRule(element, parsedRule);
 
   if (Array.isArray(result)) {
     return result.join("");
