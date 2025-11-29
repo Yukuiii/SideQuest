@@ -34,6 +34,43 @@ const showDeleteConfirm = ref(false);
 /** 待删除的书源 */
 const pendingDeleteSource = ref<{ id: string; name: string } | null>(null);
 
+/** 字体大小选项类型 */
+interface FontSizeOption {
+  label: string;
+  class: string;
+  size: string;
+}
+
+/** 字体大小选项 */
+const fontSizes: FontSizeOption[] = [
+  { label: "小", class: "text-xs", size: "12px" },
+  { label: "中", class: "text-sm", size: "14px" },
+  { label: "大", class: "text-base", size: "16px" },
+  { label: "特大", class: "text-lg", size: "18px" },
+];
+
+/** 默认字体大小配置 */
+const defaultFontSize: FontSizeOption = fontSizes[1]!;
+
+/** 当前字体大小索引（从 localStorage 读取，默认中等） */
+const savedFontSize = parseInt(localStorage.getItem("novel-font-size") || "1", 10);
+const fontSizeIndex = ref(
+  savedFontSize >= 0 && savedFontSize < fontSizes.length ? savedFontSize : 1
+);
+
+/** 当前字体大小配置 */
+const currentFontSize = computed((): FontSizeOption => {
+  return fontSizes[fontSizeIndex.value] ?? defaultFontSize;
+});
+
+/**
+ * 切换字体大小
+ */
+function toggleFontSize() {
+  fontSizeIndex.value = (fontSizeIndex.value + 1) % fontSizes.length;
+  localStorage.setItem("novel-font-size", String(fontSizeIndex.value));
+}
+
 /** 当前书源 */
 const currentSource = computed(() => {
   if (!selectedBook.value) return null;
@@ -171,7 +208,11 @@ function confirmDeleteSource() {
         <!-- 章节标题 -->
         <h3 class="mb-4 text-center font-medium">{{ currentChapter?.name }}</h3>
         <!-- 正文 -->
-        <div class="prose prose-invert max-w-none text-sm leading-relaxed" v-html="content"></div>
+        <div
+          class="prose prose-invert max-w-none leading-relaxed"
+          :style="{ fontSize: currentFontSize.size }"
+          v-html="content"
+        ></div>
       </div>
       <!-- 翻页控制 -->
       <div class="flex items-center gap-2 border-t border-[var(--vscode-panel-border)] p-2">
@@ -187,6 +228,13 @@ function confirmDeleteSource() {
           @click="showChapterList = true"
         >
           目录
+        </button>
+        <button
+          class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-sm"
+          @click="toggleFontSize"
+          :title="`字体: ${currentFontSize.label}`"
+        >
+          {{ currentFontSize.label }}
         </button>
         <button
           class="flex-1 rounded bg-[var(--vscode-button-secondaryBackground)] py-1.5 text-sm disabled:opacity-50"
