@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -53,14 +55,40 @@ jobs:
           VSIX_FILE=$(ls *.vsix)
           echo "filename=$VSIX_FILE" >> $GITHUB_OUTPUT
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+
+          # 获取上一个 tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            # 如果没有上一个 tag，获取所有 commit
+            RANGE="HEAD"
+          else
+            # 从上一个 tag 到当前
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+
+          # 生成带链接的 commit 列表
+          COMMITS=$(git log --pretty=format:"- %s by @%an ([%h](${REPO_URL}/commit/%H))" $RANGE)
+
+          # 写入多行输出
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "## What's Changed" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: Release v${{ steps.version.outputs.version }}
           tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', steps.version.outputs.version) || github.ref_name }}
+          body: ${{ steps.changelog.outputs.changelog }}
           draft: false
           prerelease: false
           files: ${{ steps.vsix.outputs.filename }}
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
