@@ -161,7 +161,8 @@ export const bilibiliClient: HotClient = {
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Referer": "https://www.bilibili.com",
-        "Cookie": "buvid3=99630CF3-F798-91E5-8700-880A87A38F6993388infoc; b_nut=1755939893; CURRENT_FNVAL=4048; CURRENT_QUALITY=16",
+        // buvid3: 设备标识，必须有才能通过风控
+        "Cookie": "buvid3=99630CF3-F798-91E5-8700-880A87A38F6993388infoc",
       },
     });
 
