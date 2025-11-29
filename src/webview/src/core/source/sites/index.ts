@@ -6,6 +6,9 @@
 // 笔趣阁
 export { biqugeSource } from "./biquge";
 
+// 笔趣阁520
+export { biquge520Source } from "./biquge520";
+
 // 看书君
 export { kanshujunSource } from "./kanshujun";
 
