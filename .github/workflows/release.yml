@@ -71,8 +71,8 @@ jobs:
             RANGE="${PREV_TAG}..HEAD"
           fi
 
-          # 生成带链接的 commit 列表
-          COMMITS=$(git log --pretty=format:"- %s by @%an ([%h](${REPO_URL}/commit/%H))" $RANGE)
+          # 生成带链接的 commit 列表（过滤掉版本号 commit）
+          COMMITS=$(git log --pretty=format:"- %s by @%an ([%h](${REPO_URL}/commit/%H))" $RANGE | grep -v "^- v\?[0-9]\+\.[0-9]\+\.[0-9]\+ by")
 
           # 生成 Full Changelog 链接
           CURRENT_TAG="${GITHUB_REF#refs/tags/}"
