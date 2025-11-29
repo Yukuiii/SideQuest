@@ -35,16 +35,17 @@ async function searchBooksEso(
   const urlRule = parseEsoUrlRule(source.searchUrl, { keyword }, source.host);
   console.log("[searchBooks] 请求 URL:", urlRule.url);
 
-  // 发起请求
+  // 发起请求（优先使用 URL 规则的 charset，否则使用全局 charset）
+  const charset = urlRule.charset || source.charset;
   const response =
     urlRule.method === "POST"
       ? await httpPost(urlRule.url, urlRule.body, {
           headers: urlRule.headers,
-          charset: urlRule.charset,
+          charset,
         })
       : await httpGet(urlRule.url, {
           headers: urlRule.headers,
-          charset: urlRule.charset,
+          charset,
         });
 
   console.log("[searchBooks] 响应状态码:", response.statusCode);
@@ -120,6 +121,11 @@ export async function getChapters(source: UnifiedSource, book: BookInfo): Promis
  * ESO 格式获取章节
  */
 async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<ChapterInfo[]> {
+  console.log("[getChapters] 开始获取章节列表");
+  console.log("[getChapters] book.bookUrl:", book.bookUrl);
+  console.log("[getChapters] source.host:", source.host);
+  console.log("[getChapters] source.charset:", source.charset);
+
   if (!source.chapterList) {
     throw new Error("书源未配置章节列表规则");
   }
@@ -130,13 +136,22 @@ async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<Chapte
     const urlRule = parseEsoUrlRule(source.chapterUrl, { result: book.bookUrl }, source.host);
     chapterUrl = urlRule.url;
   }
+  console.log("[getChapters] 请求 URL:", chapterUrl);
 
-  // 获取目录页
-  const response = await httpGet(chapterUrl);
+  // 获取目录页（使用全局 charset 配置，添加 Referer）
+  const response = await httpGet(chapterUrl, {
+    charset: source.charset,
+    headers: {
+      Referer: source.host + "/",
+    },
+  });
 
+  console.log("[getChapters] 响应状态:", response.success, response.statusCode);
   if (!response.success || !response.data) {
+    console.log("[getChapters] 请求失败:", response.error);
     throw new Error(response.error || "获取目录失败");
   }
+  console.log("[getChapters] 响应长度:", response.data.length);
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(response.data, "text/html");
@@ -204,7 +219,13 @@ async function getContentEso(source: EsoSource, chapter: ChapterInfo): Promise<s
     contentUrl = urlRule.url;
   }
 
-  const response = await httpGet(contentUrl);
+  // 使用全局 charset 配置，添加 Referer
+  const response = await httpGet(contentUrl, {
+    charset: source.charset,
+    headers: {
+      Referer: source.host + "/",
+    },
+  });
   if (!response.success || !response.data) {
     throw new Error(response.error || "获取内容失败");
   }

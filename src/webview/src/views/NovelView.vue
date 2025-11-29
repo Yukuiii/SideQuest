@@ -99,6 +99,8 @@ function goBack() {
  * 选择书籍
  */
 async function handleSelectBook(book: BookInfo) {
+  console.log("[NovelView] 选择书籍:", book);
+  console.log("[NovelView] bookUrl:", book.bookUrl);
   selectedBook.value = book;
   await loadChapters();
 }
@@ -107,13 +109,21 @@ async function handleSelectBook(book: BookInfo) {
  * 加载章节列表
  */
 async function loadChapters() {
-  if (!selectedBook.value || !currentSource.value) return;
+  console.log("[NovelView] 开始加载章节...");
+  console.log("[NovelView] selectedBook:", selectedBook.value);
+  console.log("[NovelView] currentSource:", currentSource.value?.name);
+  if (!selectedBook.value || !currentSource.value) {
+    console.log("[NovelView] 缺少书籍或书源，取消加载");
+    return;
+  }
 
   loading.value = true;
   error.value = "";
 
   try {
+    console.log("[NovelView] 调用 getChapters...");
     const result = await getChapters(currentSource.value, selectedBook.value);
+    console.log("[NovelView] 获取到章节数:", result.length);
     chapters.value = result;
   } catch (e) {
     error.value = e instanceof Error ? e.message : "加载章节失败";

@@ -17,11 +17,12 @@ export const biquge520Source: EsoSource = {
   host: "http://www.b520.cc",
   contentType: EsoContentType.Novel,
   author: "内置书源",
+  charset: "gbk",
 
   // 搜索配置
   enableSearch: true,
   searchUrl:
-    '/modules/article/search.php?searchkey={{keyword}}&searchtype=articlename,{"charset":"gbk","headers":{"Referer":"http://www.b520.cc/"}}',
+    '/modules/article/search.php?searchkey={{keyword}}&searchtype=articlename,{"headers":{"Referer":"http://www.b520.cc/"}}',
   searchList: "table.grid tr:not(:first-child)",
   searchName: "td:first-child a@text",
   searchAuthor: "td:nth-child(3)@text",

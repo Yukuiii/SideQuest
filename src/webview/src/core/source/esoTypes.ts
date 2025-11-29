@@ -41,6 +41,8 @@ export interface EsoSource {
   author?: string;
   /** 请求头 JSON 字符串 */
   userAgent?: string;
+  /** 全局字符编码（如 gbk、gb2312） */
+  charset?: string;
   /** 全局 JS 脚本 */
   loadJs?: string;
 
