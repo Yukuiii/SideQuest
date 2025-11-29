@@ -4,6 +4,7 @@
  */
 
 import { httpGet } from "../../../utils/vscode";
+import { getRandomUA } from "../../../utils/userAgent";
 import type { HotClient, HotItem, HotSource } from "../types";
 
 // ============ 百度 API 响应类型定义 ============
@@ -148,8 +149,7 @@ export const baiduClient: HotClient = {
 
     const response = await httpGet(API_URL, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": getRandomUA(),
       },
     });
 

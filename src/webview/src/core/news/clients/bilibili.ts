@@ -4,6 +4,7 @@
  */
 
 import { httpGet } from "../../../utils/vscode";
+import { getRandomUA } from "../../../utils/userAgent";
 import type { HotClient, HotItem, HotSource } from "../types";
 
 // ============ B站 API 响应类型定义 ============
@@ -159,7 +160,7 @@ export const bilibiliClient: HotClient = {
 
     const response = await httpGet(API_URL, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "User-Agent": getRandomUA(),
         "Referer": "https://www.bilibili.com",
         // buvid3: 设备标识，必须有才能通过风控
         "Cookie": "buvid3=99630CF3-F798-91E5-8700-880A87A38F6993388infoc",
