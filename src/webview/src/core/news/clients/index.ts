@@ -3,3 +3,4 @@
  */
 
 export { baiduClient } from "./baidu";
+export { bilibiliClient } from "./bilibili";
