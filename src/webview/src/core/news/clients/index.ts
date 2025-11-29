@@ -4,3 +4,4 @@
 
 export { baiduClient } from "./baidu";
 export { bilibiliClient } from "./bilibili";
+export { weiboClient } from "./weibo";

@@ -6,10 +6,10 @@
 export type { HotItem, HotSource, HotClient } from "./types";
 
 // 客户端导出
-export { baiduClient, bilibiliClient } from "./clients";
+export { baiduClient, bilibiliClient, weiboClient } from "./clients";
 
 // 导入所有客户端用于注册
-import { baiduClient, bilibiliClient } from "./clients";
+import { baiduClient, bilibiliClient, weiboClient } from "./clients";
 import type { HotClient } from "./types";
 
 /**
@@ -18,6 +18,7 @@ import type { HotClient } from "./types";
 export const hotClients: HotClient[] = [
   baiduClient,
   bilibiliClient,
+  weiboClient,
 ];
 
 /**
