@@ -29,8 +29,8 @@ export const biquge520Source: EsoSource = {
   searchChapter: "td:nth-child(2) a@text",
   searchResult: "td:first-child a@href",
 
-  // 章节列表配置
-  chapterList: "#list dl dd a",
+  // 章节列表配置（排除最新章节，只选择正文部分）
+  chapterList: "#list dl dt:nth-of-type(2) ~ dd a",
   chapterName: "@text",
   chapterResult: "@href",
 
