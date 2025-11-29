@@ -1,8 +1,9 @@
 {
   "name": "side-quest",
   "displayName": "Side Quest",
-  "description": "",
+  "description": "填补编程流中的碎片时间，提供小说阅读、新闻聚合、股票盯盘等功能",
   "version": "0.0.8",
+  "author": "yukuiii",
   "license": "GPL-3.0",
   "engines": {
     "vscode": "^1.98.0"
