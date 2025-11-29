@@ -6,6 +6,60 @@
 import { httpGet } from "../../../utils/vscode";
 import type { HotClient, HotItem, HotSource } from "../types";
 
+// ============ 百度 API 响应类型定义 ============
+
+/** 百度热搜条目 */
+interface BaiduHotItem {
+  /** 移动端搜索链接 */
+  appUrl: string;
+  /** 描述/摘要 */
+  desc: string;
+  /** 热度变化：same/up/down */
+  hotChange: string;
+  /** 热度值（字符串格式） */
+  hotScore: string;
+  /** 标签类型：0=无, 1=热, 2=新, 3=沸 */
+  hotTag: string;
+  /** 标签图片 URL */
+  hotTagImg?: string;
+  /** 配图 URL */
+  img: string;
+  /** 排名索引 */
+  index: number;
+  /** 索引链接 */
+  indexUrl: string;
+  /** 搜索词 */
+  query: string;
+  /** 原始链接 */
+  rawUrl: string;
+  /** 展示信息 */
+  show: unknown[];
+  /** 搜索链接 */
+  url: string;
+  /** 热搜词 */
+  word: string;
+}
+
+/** 百度卡片 */
+interface BaiduCard {
+  /** 组件类型 */
+  component: string;
+  /** 热搜列表 */
+  content: BaiduHotItem[];
+}
+
+/** 百度热搜 API 响应 */
+interface BaiduApiResponse {
+  /** 请求是否成功 */
+  success: boolean;
+  /** 数据 */
+  data: {
+    cards: BaiduCard[];
+  };
+}
+
+// ============ 客户端实现 ============
+
 /** 百度热搜源配置 */
 const source: HotSource = {
   id: "baidu",
@@ -15,49 +69,46 @@ const source: HotSource = {
 };
 
 /** 百度热搜 API URL */
-const API_URL = "https://top.baidu.com/board?tab=realtime";
+const API_URL = "https://top.baidu.com/api/board?platform=wise&tab=realtime";
+
+/** 热度标签映射 */
+const HOT_TAG_MAP: Record<string, string> = {
+  "1": "热",
+  "2": "新",
+  "3": "沸",
+};
 
 /**
- * 解析百度热搜页面
- * @param html 页面 HTML 
+ * 解析百度热搜 API 响应
+ * @param json API 返回的 JSON 字符串
  * @returns 热点列表
  */
-function parseHotList(html: string): HotItem[] {
+function parseHotList(json: string): HotItem[] {
   const items: HotItem[] = [];
 
-  // 百度热搜数据在 JSON 中，通过正则提取
-  // 页面中有 <!--s-data:{"data":{"cards":[...]}}-->
-  const dataMatch = html.match(/<!--s-data:(.*?)-->/s);
-  if (!dataMatch || !dataMatch[1]) {
-    console.log("[百度热搜] 未找到数据块");
-    return items;
-  }
-
   try {
-    const jsonData = JSON.parse(dataMatch[1]);
-    const cards = jsonData?.data?.cards;
+    const response: BaiduApiResponse = JSON.parse(json);
 
-    if (!Array.isArray(cards) || cards.length === 0) {
-      console.log("[百度热搜] 未找到 cards 数据");
+    if (!response.success) {
+      console.log("[百度热搜] API 返回失败");
       return items;
     }
 
-    // 第一个 card 通常是热搜榜
-    const hotList = cards[0]?.content;
-    if (!Array.isArray(hotList)) {
+    const hotList = response.data?.cards?.[0]?.content;
+    if (!hotList) {
       console.log("[百度热搜] 未找到热搜列表");
       return items;
     }
 
-    hotList.forEach((item: Record<string, unknown>, index: number) => {
+    hotList.forEach((item: BaiduHotItem) => {
       const hotItem: HotItem = {
-        rank: index + 1,
-        title: String(item.word || item.query || ""),
-        hot: formatHotValue(item.hotScore),
-        url: String(item.url || `https://www.baidu.com/s?wd=${encodeURIComponent(String(item.word || ""))}`),
-        desc: String(item.desc || ""),
-        image: item.img ? String(item.img) : undefined,
-        tag: parseTag(item.label),
+        rank: item.index + 1,
+        title: item.word || item.query,
+        hot: formatHotScore(item.hotScore),
+        url: item.url || item.rawUrl,
+        desc: item.desc || undefined,
+        image: item.img || undefined,
+        tag: HOT_TAG_MAP[item.hotTag],
       };
 
       if (hotItem.title) {
@@ -73,32 +124,17 @@ function parseHotList(html: string): HotItem[] {
 
 /**
  * 格式化热度值
+ * @param score 热度值字符串
  */
-function formatHotValue(value: unknown): string {
-  if (typeof value === "number") {
-    if (value >= 10000) {
-      return `${(value / 10000).toFixed(1)}万`;
-    }
-    return String(value);
+function formatHotScore(score: string): string {
+  const value = parseInt(score, 10);
+  if (isNaN(value)) {
+    return score;
   }
-  return String(value || "");
-}
-
-/**
- * 解析标签
- */
-function parseTag(label: unknown): string | undefined {
-  if (!label) {
-    return undefined;
+  if (value >= 10000) {
+    return `${(value / 10000).toFixed(1)}万`;
   }
-  if (typeof label === "string") {
-    return label;
-  }
-  if (typeof label === "object" && label !== null) {
-    const labelObj = label as Record<string, unknown>;
-    return String(labelObj.name || labelObj.text || "");
-  }
-  return undefined;
+  return String(value);
 }
 
 /**
