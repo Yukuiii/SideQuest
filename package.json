@@ -2,7 +2,7 @@
   "name": "side-quest",
   "displayName": "Side Quest",
   "description": "",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "license": "GPL-3.0",
   "engines": {
     "vscode": "^1.98.0"
