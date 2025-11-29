@@ -8,3 +8,4 @@ export { weiboClient } from "./weibo";
 export { douyinClient } from "./douyin";
 export { toutiaoClient } from "./toutiao";
 export { neteaseClient } from "./netease";
+export { tiebaClient } from "./tieba";
