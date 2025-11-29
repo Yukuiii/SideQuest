@@ -74,11 +74,21 @@ jobs:
           # 生成带链接的 commit 列表
           COMMITS=$(git log --pretty=format:"- %s by @%an ([%h](${REPO_URL}/commit/%H))" $RANGE)
 
+          # 生成 Full Changelog 链接
+          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
+          if [ -z "$PREV_TAG" ]; then
+            FULL_CHANGELOG="**Full Changelog**: ${REPO_URL}/commits/${CURRENT_TAG}"
+          else
+            FULL_CHANGELOG="**Full Changelog**: ${REPO_URL}/compare/${PREV_TAG}...${CURRENT_TAG}"
+          fi
+
           # 写入多行输出
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           echo "## What's Changed" >> $GITHUB_OUTPUT
           echo "" >> $GITHUB_OUTPUT
           echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "$FULL_CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create Release
