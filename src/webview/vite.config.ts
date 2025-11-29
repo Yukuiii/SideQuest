@@ -6,6 +6,8 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
+  // 使用相对路径，确保 webview 中动态导入正常工作
+  base: "./",
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),
