@@ -53,8 +53,27 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
           // 代理 HTTP 请求
           await this._handleHttpRequest(webviewView.webview, requestId, data);
           break;
+
+        case 'openUrl':
+          // 使用 Simple Browser 在编辑器内打开链接
+          await this._openUrlInSimpleBrowser(data.url);
+          break;
       }
     });
+  }
+
+  /**
+   * 使用 Simple Browser 在编辑器内打开 URL
+   * @param url 要打开的 URL
+   */
+  private async _openUrlInSimpleBrowser(url: string): Promise<void> {
+    try {
+      await vscode.commands.executeCommand('simpleBrowser.show', url);
+    } catch (error) {
+      logger.error('Failed to open Simple Browser:', error);
+      // 如果 Simple Browser 不可用，回退到外部浏览器
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    }
   }
 
   /**

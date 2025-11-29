@@ -6,6 +6,7 @@
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { hotClients, type HotItem, type HotClient } from "../core/news";
+import { postMessage } from "../utils/vscode";
 
 const router = useRouter();
 
@@ -54,10 +55,10 @@ function switchSource(client: HotClient) {
 }
 
 /**
- * 打开链接
+ * 打开链接（在编辑器内使用 Simple Browser）
  */
 function openLink(url: string) {
-  window.open(url, "_blank");
+  postMessage("openUrl", { url });
 }
 
 /**
