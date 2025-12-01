@@ -3,13 +3,16 @@
  * 阅读者视图组件
  * 提供小说阅读功能：书源导入、搜索、阅读
  */
-import { ref, computed } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import SourceImport from "../components/SourceImport.vue";
 import BookList from "../components/BookList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import ReaderControls from "../components/ReaderControls.vue";
 import type { BookInfo, ChapterInfo } from "../core/source";
 import { sourceManager, getChapters, getContent } from "../core/source";
+import { loadReaderPrefs, saveReaderPrefs, FONT_SIZES, LINE_HEIGHTS, PAGE_WIDTHS } from "../utils/readerPrefs";
+import type { ReaderPrefs } from "../utils/readerPrefs";
 
 const router = useRouter();
 
@@ -26,7 +29,10 @@ const content = ref("");
 /** 是否正在加载 */
 const loading = ref(false);
 /** 错误信息 */
-const error = ref("");
+const error = ref<{
+  message: string;
+  retry?: () => void;
+} | null>(null);
 /** 是否显示章节列表 */
 const showChapterList = ref(false);
 /** 删除确认对话框状态 */
@@ -34,42 +40,18 @@ const showDeleteConfirm = ref(false);
 /** 待删除的书源 */
 const pendingDeleteSource = ref<{ id: string; name: string } | null>(null);
 
-/** 字体大小选项类型 */
-interface FontSizeOption {
-  label: string;
-  class: string;
-  size: string;
-}
+/** 阅读器偏好设置 */
+const prefs = ref<ReaderPrefs>(loadReaderPrefs());
 
-/** 字体大小选项 */
-const fontSizes: FontSizeOption[] = [
-  { label: "小", class: "text-xs", size: "12px" },
-  { label: "中", class: "text-sm", size: "14px" },
-  { label: "大", class: "text-base", size: "16px" },
-  { label: "特大", class: "text-lg", size: "18px" },
-];
+// 监听偏好变化，自动保存
+watch(prefs, saveReaderPrefs, { deep: true });
 
-/** 默认字体大小配置 */
-const defaultFontSize: FontSizeOption = fontSizes[1]!;
-
-/** 当前字体大小索引（从 localStorage 读取，默认中等） */
-const savedFontSize = parseInt(localStorage.getItem("novel-font-size") || "1", 10);
-const fontSizeIndex = ref(
-  savedFontSize >= 0 && savedFontSize < fontSizes.length ? savedFontSize : 1
-);
-
-/** 当前字体大小配置 */
-const currentFontSize = computed((): FontSizeOption => {
-  return fontSizes[fontSizeIndex.value] ?? defaultFontSize;
-});
-
-/**
- * 切换字体大小
- */
-function toggleFontSize() {
-  fontSizeIndex.value = (fontSizeIndex.value + 1) % fontSizes.length;
-  localStorage.setItem("novel-font-size", String(fontSizeIndex.value));
-}
+/** 当前字号（像素值） */
+const currentFontSize = computed(() => FONT_SIZES[prefs.value.fontSizeIndex]);
+/** 当前行高 */
+const currentLineHeight = computed(() => LINE_HEIGHTS[prefs.value.lineHeightIndex]);
+/** 当前字重 */
+const currentFontWeight = computed(() => prefs.value.fontWeight);
 
 /** 当前书源 */
 const currentSource = computed(() => {
@@ -101,6 +83,13 @@ function goBack() {
 async function handleSelectBook(book: BookInfo) {
   console.log("[NovelView] 选择书籍:", book);
   console.log("[NovelView] bookUrl:", book.bookUrl);
+
+  // 清空旧书籍的状态，防止显示错配
+  chapters.value = [];
+  content.value = "";
+  currentChapterIndex.value = 0;
+  error.value = null;
+
   selectedBook.value = book;
   await loadChapters();
 }
@@ -118,15 +107,22 @@ async function loadChapters() {
   }
 
   loading.value = true;
-  error.value = "";
+  error.value = null;
 
   try {
     console.log("[NovelView] 调用 getChapters...");
     const result = await getChapters(currentSource.value, selectedBook.value);
     console.log("[NovelView] 获取到章节数:", result.length);
     chapters.value = result;
+    if (chapters.value.length === 0) {
+      error.value = { message: "该书籍暂无章节" };
+    }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "加载章节失败";
+    const message = e instanceof Error ? e.message : "加载章节失败";
+    error.value = {
+      message,
+      retry: loadChapters, // 提供重试回调
+    };
     console.error("加载章节失败:", e);
   } finally {
     loading.value = false;
@@ -142,15 +138,22 @@ async function readChapter(index: number) {
   currentChapterIndex.value = index;
   showChapterList.value = false;
   loading.value = true;
-  error.value = "";
+  error.value = null;
 
   const chapter = chapters.value[index];
 
   try {
     const result = await getContent(currentSource.value, chapter);
     content.value = result;
+    if (!result || result.trim() === "") {
+      error.value = { message: "章节内容为空" };
+    }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "加载内容失败";
+    const message = e instanceof Error ? e.message : "加载内容失败";
+    error.value = {
+      message,
+      retry: () => readChapter(index), // 提供重试回调
+    };
   } finally {
     loading.value = false;
   }
@@ -194,6 +197,49 @@ function confirmDeleteSource() {
     pendingDeleteSource.value = null;
   }
 }
+
+/**
+ * 快捷键处理函数
+ */
+function handleKeydown(event: KeyboardEvent) {
+  // 仅在阅读模式生效
+  if (!selectedBook.value || !content.value) return;
+
+  // 排除输入框
+  const target = event.target as HTMLElement;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) {
+    return;
+  }
+
+  const keyHandlers: Record<string, () => void> = {
+    "d": () => {
+      showChapterList.value = !showChapterList.value;
+    },
+    "f": () => {
+      const nextIndex = (prefs.value.fontSizeIndex + 1) % FONT_SIZES.length;
+      prefs.value = { ...prefs.value, fontSizeIndex: nextIndex };
+    },
+    "b": () => {
+      prefs.value = { ...prefs.value, hideContent: !prefs.value.hideContent };
+    },
+  };
+
+  const handler = keyHandlers[event.key.toLowerCase()];
+  if (handler) {
+    event.preventDefault();
+    handler();
+  }
+}
+
+// 注册快捷键监听器
+onMounted(() => {
+  window.addEventListener("keydown", handleKeydown);
+});
+
+// 移除快捷键监听器
+onUnmounted(() => {
+  window.removeEventListener("keydown", handleKeydown);
+});
 </script>
 
 <template>
@@ -214,45 +260,57 @@ function confirmDeleteSource() {
 
     <!-- 阅读内容 -->
     <template v-if="selectedBook && content">
-      <div class="flex-1 overflow-auto p-4">
-        <!-- 章节标题 -->
-        <h3 class="mb-4 text-center font-medium">{{ currentChapter?.name }}</h3>
-        <!-- 正文 -->
-        <div
-          class="prose prose-invert max-w-none leading-relaxed"
-          :style="{ fontSize: currentFontSize.size }"
-          v-html="content"
-        ></div>
-      </div>
-      <!-- 翻页控制 -->
-      <div class="flex items-center gap-2 border-t border-[var(--vscode-panel-border)] p-2">
-        <button
-          class="flex-1 rounded bg-[var(--vscode-button-secondaryBackground)] py-1.5 text-sm disabled:opacity-50"
-          :disabled="currentChapterIndex === 0"
-          @click="prevChapter"
-        >
-          上一章
-        </button>
-        <button
-          class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-sm"
-          @click="showChapterList = true"
-        >
-          目录
-        </button>
-        <button
-          class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-sm"
-          @click="toggleFontSize"
-          :title="`字体: ${currentFontSize.label}`"
-        >
-          {{ currentFontSize.label }}
-        </button>
-        <button
-          class="flex-1 rounded bg-[var(--vscode-button-secondaryBackground)] py-1.5 text-sm disabled:opacity-50"
-          :disabled="currentChapterIndex >= chapters.length - 1"
-          @click="nextChapter"
-        >
-          下一章
-        </button>
+      <div class="flex flex-1 flex-col overflow-hidden">
+        <!-- 控制栏 -->
+        <ReaderControls :prefs="prefs" @update:prefs="prefs = $event" />
+
+        <!-- 老板键遮罩 -->
+        <div v-if="prefs.hideContent" class="flex flex-1 items-center justify-center">
+          <div class="text-center text-sm text-[var(--vscode-descriptionForeground)]">
+            <p>内容已隐藏</p>
+            <p class="mt-2 text-xs">按 B 键恢复显示</p>
+          </div>
+        </div>
+
+        <!-- 正文区域 -->
+        <div v-else class="flex-1 overflow-auto p-4">
+          <!-- 章节标题 -->
+          <h3 class="mb-4 text-center font-medium">{{ currentChapter?.name }}</h3>
+          <!-- 正文 -->
+          <div
+            class="prose prose-invert mx-auto"
+            :style="{
+              fontSize: `${currentFontSize}px`,
+              lineHeight: currentLineHeight,
+              fontWeight: currentFontWeight
+            }"
+            v-html="content"
+          ></div>
+        </div>
+
+        <!-- 翻页控制 -->
+        <div class="flex items-center gap-2 border-t border-[var(--vscode-panel-border)] p-2">
+          <button
+            class="flex-1 rounded bg-[var(--vscode-button-secondaryBackground)] py-1.5 text-sm disabled:opacity-50"
+            :disabled="currentChapterIndex === 0"
+            @click="prevChapter"
+          >
+            上一章
+          </button>
+          <button
+            class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-sm"
+            @click="showChapterList = true"
+          >
+            目录
+          </button>
+          <button
+            class="flex-1 rounded bg-[var(--vscode-button-secondaryBackground)] py-1.5 text-sm disabled:opacity-50"
+            :disabled="currentChapterIndex >= chapters.length - 1"
+            @click="nextChapter"
+          >
+            下一章
+          </button>
+        </div>
       </div>
     </template>
 
@@ -338,18 +396,37 @@ function confirmDeleteSource() {
     <!-- 加载状态 -->
     <div
       v-if="loading"
-      class="absolute inset-0 flex items-center justify-center bg-black/50"
+      class="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm"
     >
-      <div class="text-sm">加载中...</div>
+      <div class="flex flex-col items-center gap-2">
+        <div
+          class="h-8 w-8 animate-spin rounded-full border-4 border-[var(--vscode-progressBar-background)] border-t-transparent"
+        ></div>
+        <div class="text-sm text-white">加载中...</div>
+      </div>
     </div>
 
     <!-- 错误提示 -->
     <div
       v-if="error"
-      class="absolute bottom-4 left-4 right-4 rounded bg-red-500/90 p-2 text-sm text-white"
+      class="absolute bottom-4 left-4 right-4 flex items-center justify-between rounded bg-[var(--vscode-inputValidation-errorBackground)] p-3 text-sm text-[var(--vscode-inputValidation-errorForeground)]"
     >
-      {{ error }}
-      <button class="ml-2 underline" @click="error = ''">关闭</button>
+      <span>{{ error.message }}</span>
+      <div class="flex gap-2">
+        <button
+          v-if="error.retry"
+          class="rounded bg-[var(--vscode-button-background)] px-3 py-1 text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]"
+          @click="error.retry"
+        >
+          重试
+        </button>
+        <button
+          class="rounded px-3 py-1 hover:bg-white/10"
+          @click="error = null"
+        >
+          关闭
+        </button>
+      </div>
     </div>
 
     <!-- 章节列表弹窗 -->
