@@ -157,15 +157,33 @@ export function cacheContent(url: string, content: string): boolean {
     }
 
     let meta = getMeta();
+    const key = getCacheKey(url);
+
+    // 检查是否覆盖已有缓存，扣除旧的 size
+    let oldSize = 0;
+    if (meta.urls.includes(url)) {
+      try {
+        const oldJson = localStorage.getItem(key);
+        if (oldJson) {
+          const oldCache: ChapterCache = JSON.parse(oldJson);
+          oldSize = oldCache.size;
+        }
+      } catch (err) {
+        console.warn("[CacheManager] Failed to read old cache size:", err);
+      }
+    }
+
+    // 计算实际需要的额外空间
+    const sizeIncrease = contentSize - oldSize;
 
     // 检查是否需要清理
-    if (meta.totalSize + contentSize > MAX_CACHE_SIZE * CLEANUP_THRESHOLD) {
+    if (meta.totalSize + sizeIncrease > MAX_CACHE_SIZE * CLEANUP_THRESHOLD) {
       const targetSize = MAX_CACHE_SIZE * 0.5; // 清理到 50%
       meta = performLRUCleanup(meta, targetSize);
     }
 
     // 再次检查容量
-    if (meta.totalSize + contentSize > MAX_CACHE_SIZE) {
+    if (meta.totalSize + sizeIncrease > MAX_CACHE_SIZE) {
       console.warn(`[CacheManager] Cache full, cannot add new chapter`);
       return false;
     }
@@ -176,8 +194,6 @@ export function cacheContent(url: string, content: string): boolean {
       cachedAt: Date.now(),
       size: contentSize,
     };
-
-    const key = getCacheKey(url);
 
     try {
       localStorage.setItem(key, JSON.stringify(cache));
@@ -200,11 +216,11 @@ export function cacheContent(url: string, content: string): boolean {
     // 更新元数据
     if (!meta.urls.includes(url)) {
       meta.urls.push(url);
-      meta.totalSize += contentSize;
     }
+    meta.totalSize += sizeIncrease;
     saveMeta(meta);
 
-    console.log(`[CacheManager] Cached ${url}, size: ${contentSize} bytes, total: ${meta.totalSize} bytes`);
+    console.log(`[CacheManager] Cached ${url}, size: ${contentSize} bytes (old: ${oldSize} bytes), total: ${meta.totalSize} bytes`);
     return true;
   } catch (err) {
     console.error("[CacheManager] Failed to cache content:", err);

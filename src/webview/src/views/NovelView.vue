@@ -59,6 +59,13 @@ const contentContainerRef = ref<HTMLElement | null>(null);
 // 监听偏好变化，自动保存
 watch(prefs, saveReaderPrefs, { deep: true });
 
+// 监听标签页切换，刷新缓存统计
+watch(activeTab, (newTab) => {
+  if (newTab === "import") {
+    refreshCacheStats();
+  }
+});
+
 /**
  * 保存当前阅读进度（防抖）
  */
@@ -101,7 +108,7 @@ const currentChapter = computed(() => {
 });
 
 /** 缓存统计信息 */
-const cacheStats = computed(() => getCacheStats());
+const cacheStats = ref(getCacheStats());
 
 /**
  * 返回首页
@@ -137,8 +144,13 @@ async function handleSelectBook(book: BookInfo) {
     const progress = getBookProgress(book.bookUrl);
     if (progress) {
       // 有进度记录，恢复到上次阅读位置
-      currentChapterIndex.value = progress.chapterIndex;
-      await readChapter(progress.chapterIndex);
+      // 校验章节索引有效性，防止书源章节数变化导致越界
+      const validChapterIndex = Math.max(0, Math.min(progress.chapterIndex, chapters.value.length - 1));
+      if (validChapterIndex !== progress.chapterIndex) {
+        console.warn(`[NovelView] 章节索引越界，已调整：${progress.chapterIndex} → ${validChapterIndex}`);
+      }
+      currentChapterIndex.value = validChapterIndex;
+      await readChapter(validChapterIndex);
       // 恢复滚动位置
       await nextTick();
       if (contentContainerRef.value) {
@@ -182,7 +194,12 @@ async function handleContinueReading(shelfBook: ShelfBook) {
 
   // 章节加载成功后，阅读指定章节
   if (chapters.value.length > 0) {
-    await readChapter(shelfBook.chapterIndex);
+    // 校验章节索引有效性，防止书源章节数变化导致越界
+    const validChapterIndex = Math.max(0, Math.min(shelfBook.chapterIndex, chapters.value.length - 1));
+    if (validChapterIndex !== shelfBook.chapterIndex) {
+      console.warn(`[NovelView] 章节索引越界，已调整：${shelfBook.chapterIndex} → ${validChapterIndex}`);
+    }
+    await readChapter(validChapterIndex);
     // 恢复滚动位置
     await nextTick();
     if (contentContainerRef.value) {
@@ -281,10 +298,20 @@ async function readChapter(index: number) {
       const nextIndex = index + 1;
       if (nextIndex < chapters.value.length && currentSource.value) {
         const nextChapter = chapters.value[nextIndex];
-        if (nextChapter) {
+        const currentBook = selectedBook.value;
+        const currentSourceRef = currentSource.value;
+        if (nextChapter && currentBook) {
           setTimeout(() => {
-            if (currentSource.value && nextChapter) {
-              preloadChapter(currentSource.value, nextChapter);
+            // 校验上下文：确保用户仍在阅读同一本书的同一章节
+            if (
+              currentSource.value === currentSourceRef &&
+              selectedBook.value === currentBook &&
+              currentChapterIndex.value === index &&
+              nextChapter
+            ) {
+              preloadChapter(currentSourceRef, nextChapter);
+            } else {
+              console.log("[NovelView] 预加载已取消（用户已切换书籍或章节）");
             }
           }, 1000);
         }
@@ -352,6 +379,15 @@ function handleClearCache() {
  */
 function confirmClearCache() {
   clearAllCache();
+  // 刷新缓存统计
+  cacheStats.value = getCacheStats();
+}
+
+/**
+ * 刷新缓存统计
+ */
+function refreshCacheStats() {
+  cacheStats.value = getCacheStats();
 }
 
 /**
