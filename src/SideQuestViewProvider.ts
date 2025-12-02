@@ -42,21 +42,22 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     // 处理来自 Webview 的消息
     webviewView.webview.onDidReceiveMessage(async (message) => {
       logger.debug('Received message from webview', message);
-      const { command, requestId, data } = message;
+      const { command, requestId } = message;
+      const payload = message.payload ?? message.data;
 
       switch (command) {
         case 'selectMode':
-          vscode.window.showInformationMessage(`功能开发中：${data.mode}`);
+          vscode.window.showInformationMessage(`功能开发中：${payload.mode}`);
           break;
 
         case 'httpRequest':
           // 代理 HTTP 请求
-          await this._handleHttpRequest(webviewView.webview, requestId, data);
+          await this._handleHttpRequest(webviewView.webview, requestId, payload);
           break;
 
         case 'openUrl':
           // 使用 Simple Browser 在编辑器内打开链接
-          await this._openUrlInSimpleBrowser(data.url);
+          await this._openUrlInSimpleBrowser(payload.url);
           break;
       }
     });
@@ -87,43 +88,62 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     requestId: string,
     options: HttpRequestOptions
   ): Promise<void> {
-    try {
-      logger.debug(`Proxy HTTP request: ${options.method || 'GET'} ${options.url}`);
+    if (!requestId) {
+      logger.warn('Missing requestId for httpRequest');
+      return;
+    }
 
-      const response = await httpService.get(options.url, {
-        headers: options.headers,
-        charset: options.charset,
-        timeout: options.timeout,
+    if (!options || !options.url) {
+      webview.postMessage({
+        command: 'response',
+        requestId,
+        payload: {
+          success: false,
+          error: {
+            message: '无效的请求参数',
+            code: 'BAD_REQUEST',
+          },
+        },
       });
+      return;
+    }
 
-      // 如果是 POST 请求
-      if (options.method === 'POST') {
-        const postResponse = await httpService.post(options.url, options.body, {
-          headers: options.headers,
-          charset: options.charset,
-          timeout: options.timeout,
-        });
-        webview.postMessage({
-          command: 'httpResponse',
-          requestId,
-          response: postResponse,
-        });
-        return;
-      }
+    try {
+      const method = (options.method || 'GET').toUpperCase();
+      logger.debug(`Proxy HTTP request: ${method} ${options.url}`);
+
+      const response =
+        method === 'POST'
+          ? await httpService.post(options.url, options.body, {
+              headers: options.headers,
+              charset: options.charset,
+              timeout: options.timeout,
+            })
+          : await httpService.get(options.url, {
+              headers: options.headers,
+              charset: options.charset,
+              timeout: options.timeout,
+            });
 
       webview.postMessage({
-        command: 'httpResponse',
+        command: 'response',
         requestId,
-        response,
+        payload: {
+          success: true,
+          data: response,
+        },
       });
     } catch (error) {
       logger.error('HTTP proxy error:', error);
       webview.postMessage({
-        command: 'httpResponse',
+        command: 'response',
         requestId,
-        response: {
+        payload: {
           success: false,
-          error: error instanceof Error ? error.message : '未知错误',
+          error: {
+            message: error instanceof Error ? error.message : '未知错误',
+            code: 'HTTP_PROXY_ERROR',
+          },
         },
       });
     }

@@ -6,11 +6,22 @@
 /** 获取 VS Code API 实例 */
 const vscode = acquireVsCodeApi();
 
+/** 标准响应结构 */
+interface ExtensionResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: { message: string; code?: string };
+}
+
 /** 请求回调映射表 */
-const pendingRequests = new Map<string, {
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
-}>();
+const pendingRequests = new Map<
+  string,
+  {
+    resolve: (value: any) => void;
+    reject: (reason: any) => void;
+    timer: number;
+  }
+>();
 
 /** 请求 ID 计数器 */
 let requestIdCounter = 0;
@@ -22,27 +33,56 @@ function generateRequestId(): string {
   return `req_${Date.now()}_${++requestIdCounter}`;
 }
 
-// 监听来自扩展的消息
+// 监听来自扩展的消息（统一响应）
 window.addEventListener("message", (event) => {
   const message = event.data;
+  if (!message || message.command !== "response" || !message.requestId) return;
 
-  // 处理 HTTP 响应
-  if (message.command === "httpResponse" && message.requestId) {
-    const pending = pendingRequests.get(message.requestId);
-    if (pending) {
-      pendingRequests.delete(message.requestId);
-      pending.resolve(message.response);
-    }
+  const pending = pendingRequests.get(message.requestId);
+  if (!pending) return;
+
+  pendingRequests.delete(message.requestId);
+  clearTimeout(pending.timer);
+
+  const payload = message.payload as ExtensionResponse;
+  if (payload?.success) {
+    pending.resolve(payload.data as unknown);
+  } else {
+    pending.reject(
+      payload?.error ?? { message: "未知错误", code: "UNKNOWN_ERROR" }
+    );
   }
 });
 
 /**
- * 向扩展发送消息
+ * 向扩展发送消息（无需响应）
  * @param command - 命令名称
  * @param data - 附加数据（可选）
  */
 export function postMessage(command: string, data?: unknown) {
   vscode.postMessage({ command, data });
+}
+
+/**
+ * 统一的请求方法，带超时和标准错误对象
+ */
+export function requestExtension<T = unknown>(
+  command: string,
+  payload: unknown,
+  timeout = 15000
+): Promise<T> {
+  const requestId = generateRequestId();
+
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      pendingRequests.delete(requestId);
+      reject({ message: "请求超时，请检查网络或重试", code: "TIMEOUT_ERROR" });
+    }, timeout);
+
+    pendingRequests.set(requestId, { resolve, reject, timer });
+
+    vscode.postMessage({ command, requestId, payload });
+  });
 }
 
 /**
@@ -98,35 +138,8 @@ export interface HttpResponse {
  * @returns 响应结果
  */
 export function httpRequest(options: HttpRequestOptions): Promise<HttpResponse> {
-  return new Promise((resolve, reject) => {
-    const requestId = generateRequestId();
-
-    // 设置超时
-    const timeout = options.timeout || 30000;
-    const timer = setTimeout(() => {
-      pendingRequests.delete(requestId);
-      reject(new Error(`请求超时 (${timeout}ms)`));
-    }, timeout + 5000); // 额外 5 秒等待响应
-
-    // 注册回调
-    pendingRequests.set(requestId, {
-      resolve: (response) => {
-        clearTimeout(timer);
-        resolve(response as HttpResponse);
-      },
-      reject: (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    });
-
-    // 发送请求
-    vscode.postMessage({
-      command: "httpRequest",
-      requestId,
-      data: options,
-    });
-  });
+  const timeout = options.timeout || 30000;
+  return requestExtension<HttpResponse>("httpRequest", options, timeout);
 }
 
 /**

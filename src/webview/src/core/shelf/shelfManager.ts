@@ -4,6 +4,7 @@
  */
 
 import type { ShelfBook, ShelfData } from "./types";
+import { generateBookId } from "../source/bookId";
 
 const STORAGE_KEY = "novel:shelf";
 const DEFAULT_SHELF: ShelfData = { books: [] };
@@ -15,7 +16,9 @@ export function loadShelf(): ShelfData {
   try {
     const json = localStorage.getItem(STORAGE_KEY);
     if (json) {
-      return JSON.parse(json);
+      const parsed = JSON.parse(json) as ShelfData;
+      const migrated = migrateShelf(parsed);
+      return migrated;
     }
   } catch (err) {
     console.error("[ShelfManager] Failed to load shelf:", err);
@@ -39,6 +42,9 @@ export function saveShelf(data: ShelfData): void {
  */
 export function addToShelf(book: ShelfBook): void {
   const shelf = loadShelf();
+  if (!book.bookInfo.alternativeSources) {
+    book.bookInfo.alternativeSources = [];
+  }
   const existingIndex = shelf.books.findIndex(
     (b) => b.bookInfo.bookUrl === book.bookInfo.bookUrl
   );
@@ -85,4 +91,72 @@ export function updateProgress(
 export function getBookProgress(bookUrl: string): ShelfBook | null {
   const shelf = loadShelf();
   return shelf.books.find((b) => b.bookInfo.bookUrl === bookUrl) || null;
+}
+
+/**
+ * 更新备用书源
+ */
+export function updateAlternativeSources(
+  bookUrl: string,
+  alternativeSources: ShelfBook["bookInfo"]["alternativeSources"]
+): void {
+  const shelf = loadShelf();
+  const book = shelf.books.find((b) => b.bookInfo.bookUrl === bookUrl);
+  if (book) {
+    book.bookInfo.alternativeSources = alternativeSources ?? [];
+    saveShelf(shelf);
+  }
+}
+
+/**
+ * 替换书籍信息（用于切换书源）
+ */
+export function replaceBookInfo(
+  oldBookUrl: string,
+  newBookInfo: ShelfBook["bookInfo"],
+  chapterIndex?: number
+): void {
+  const shelf = loadShelf();
+  const book = shelf.books.find((b) => b.bookInfo.bookUrl === oldBookUrl);
+  if (book) {
+    book.bookInfo = newBookInfo;
+    if (typeof chapterIndex === "number") {
+      book.chapterIndex = chapterIndex;
+    }
+    saveShelf(shelf);
+  }
+}
+
+/**
+ * 迁移旧数据，补全 bookId / alternativeSources
+ */
+function migrateShelf(data: ShelfData): ShelfData {
+  let migrated = false;
+  const books = data.books.map((item) => {
+    const bookInfo = { ...item.bookInfo };
+
+    if (!bookInfo.bookId) {
+      bookInfo.bookId = generateBookId(bookInfo.name, bookInfo.author);
+      migrated = true;
+    }
+
+    if (!bookInfo.alternativeSources) {
+      bookInfo.alternativeSources = [];
+      migrated = true;
+    }
+
+    const updated: ShelfBook = {
+      ...item,
+      bookInfo,
+    };
+    return updated;
+  });
+
+  if (migrated) {
+    const migratedData: ShelfData = { books };
+    saveShelf(migratedData);
+    return migratedData;
+  }
+
+  return data;
 }

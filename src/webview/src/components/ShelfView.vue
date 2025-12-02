@@ -7,6 +7,8 @@ import { ref, computed, onMounted } from "vue";
 import { loadShelf, removeFromShelf } from "@/core/shelf/shelfManager";
 import type { ShelfBook } from "@/core/shelf/types";
 import ConfirmDialog from "./ConfirmDialog.vue";
+import LinkSourcesModal from "./LinkSourcesModal.vue";
+import { updateAlternativeSources } from "@/core/shelf/shelfManager";
 
 const emit = defineEmits<{
   (e: "continueReading", book: ShelfBook): void;
@@ -19,6 +21,9 @@ const activeTab = ref<"reading" | "finished">("reading");
 const showDeleteConfirm = ref(false);
 /** 待删除的书籍 */
 const pendingDeleteBook = ref<{ url: string; name: string } | null>(null);
+/** 关联备用源弹窗 */
+const showLinkModal = ref(false);
+const linkingBook = ref<ShelfBook | null>(null);
 
 const filteredBooks = computed(() => {
   return shelf.value.books
@@ -49,6 +54,34 @@ function confirmDelete() {
     removeFromShelf(pendingDeleteBook.value.url);
     shelf.value = loadShelf();
     pendingDeleteBook.value = null;
+  }
+}
+
+/**
+ * 打开关联备用源弹窗
+ */
+function openLinkModal(book: ShelfBook) {
+  linkingBook.value = book;
+  showLinkModal.value = true;
+}
+
+/**
+ * 保存关联备用源
+ */
+function handleSaveAlternativeSources(alternatives: { sourceId: string; sourceName: string; bookUrl: string }[]) {
+  if (!linkingBook.value) return;
+  updateAlternativeSources(linkingBook.value.bookInfo.bookUrl, alternatives);
+  shelf.value = loadShelf();
+  linkingBook.value = null;
+}
+
+/**
+ * 控制关联弹窗显示
+ */
+function handleLinkModalVisible(visible: boolean) {
+  showLinkModal.value = visible;
+  if (!visible) {
+    linkingBook.value = null;
   }
 }
 
@@ -121,6 +154,12 @@ defineExpose({ refresh });
                 继续
               </button>
               <button
+                class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1 text-xs text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+                @click="openLinkModal(book)"
+              >
+                备用源
+              </button>
+              <button
                 class="text-xs text-red-400 hover:text-red-300"
                 @click="handleRemove(book.bookInfo.bookUrl, book.bookInfo.name)"
               >
@@ -140,6 +179,13 @@ defineExpose({ refresh });
       confirm-text="删除"
       :danger="true"
       @confirm="confirmDelete"
+    />
+
+    <LinkSourcesModal
+      :visible="showLinkModal"
+      :book="linkingBook"
+      @update:visible="handleLinkModalVisible"
+      @save="handleSaveAlternativeSources"
     />
   </div>
 </template>

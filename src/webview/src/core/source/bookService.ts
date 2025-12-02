@@ -9,6 +9,7 @@ import type { UnifiedSource, BookInfo, ChapterInfo } from "./types";
 import type { EsoSource } from "./esoParser";
 import { parseEsoRule, executeEsoRule, parseEsoUrlRule } from "./esoParser";
 import { getCachedContent, cacheContent } from "../cache/cacheManager";
+import { generateBookId } from "./bookId";
 
 /**
  * 搜索书籍
@@ -61,51 +62,7 @@ async function searchBooksEso(
   const parser = new DOMParser();
   const doc = parser.parseFromString(response.data, "text/html");
 
-  // 提取书籍列表
-  const listRule = parseEsoRule(source.searchList);
-  console.log("[searchBooks] 列表选择器:", source.searchList, "解析结果:", listRule);
-
-  let bookElements: Element[] = [];
-  if (listRule.type === "css" && listRule.selector) {
-    try {
-      bookElements = Array.from(doc.querySelectorAll(listRule.selector));
-    } catch {
-      // CSS 选择器无效
-    }
-  }
-  console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);
-
-  const books: BookInfo[] = [];
-
-  bookElements.forEach((element) => {
-    try {
-      const book: BookInfo = {
-        name: extractText(element, source.searchName) || "",
-        author: extractText(element, source.searchAuthor),
-        coverUrl: extractText(element, source.searchCover),
-        intro: extractText(element, source.searchDescription),
-        lastChapter: extractText(element, source.searchChapter),
-        bookUrl: extractText(element, source.searchResult) || "",
-        sourceId,
-      };
-
-      // 处理相对 URL
-      if (book.bookUrl && !book.bookUrl.startsWith("http")) {
-        book.bookUrl = new URL(book.bookUrl, source.host).href;
-      }
-      if (book.coverUrl && !book.coverUrl.startsWith("http")) {
-        book.coverUrl = new URL(book.coverUrl, source.host).href;
-      }
-
-      if (book.name && book.bookUrl) {
-        books.push(book);
-      }
-    } catch {
-      // 解析书籍失败，跳过
-    }
-  });
-
-  return books;
+  return parseSearchResultsFromDoc(source, doc, sourceId);
 }
 
 /**
@@ -312,4 +269,84 @@ function extractText(element: Element, rule?: string): string | undefined {
   }
 
   return result || undefined;
+}
+
+/**
+ * 解析搜索结果（DOM）为 BookInfo 列表
+ */
+function parseSearchResultsFromDoc(
+  source: EsoSource,
+  doc: Document,
+  sourceId: string
+): BookInfo[] {
+  if (!source.searchList) {
+    throw new Error("书源未配置搜索列表规则");
+  }
+  const searchListRule = source.searchList;
+  // 提取书籍列表
+  const listRule = parseEsoRule(searchListRule);
+  console.log("[searchBooks] 列表选择器:", searchListRule, "解析结果:", listRule);
+
+  let bookElements: Element[] = [];
+  if (listRule.type === "css" && listRule.selector) {
+    try {
+      bookElements = Array.from(doc.querySelectorAll(listRule.selector));
+    } catch {
+      // CSS 选择器无效
+    }
+  }
+  console.log("[searchBooks] 找到书籍元素数量:", bookElements.length);
+
+  const books: BookInfo[] = [];
+
+  bookElements.forEach((element) => {
+    try {
+      const name = extractText(element, source.searchName) || "";
+      const author = extractText(element, source.searchAuthor);
+      const bookUrlRaw = extractText(element, source.searchResult) || "";
+      const coverUrlRaw = extractText(element, source.searchCover);
+
+      let bookUrl = bookUrlRaw;
+      let coverUrl = coverUrlRaw;
+
+      // 处理相对 URL
+      if (bookUrl && !bookUrl.startsWith("http")) {
+        bookUrl = new URL(bookUrl, source.host).href;
+      }
+      if (coverUrl && !coverUrl.startsWith("http")) {
+        coverUrl = new URL(coverUrl, source.host).href;
+      }
+
+      if (!name || !bookUrl) {
+        return;
+      }
+
+      const book: BookInfo = {
+        bookId: generateBookId(name, author),
+        name,
+        author,
+        coverUrl,
+        intro: extractText(element, source.searchDescription),
+        lastChapter: extractText(element, source.searchChapter),
+        bookUrl,
+        sourceId,
+        alternativeSources: [],
+      };
+
+      books.push(book);
+    } catch {
+      // 解析书籍失败，跳过
+    }
+  });
+
+  return books;
+}
+
+/**
+ * 解析搜索结果（HTML 字符串）为 BookInfo 列表
+ */
+export function parseSearchResults(source: UnifiedSource, rawHtml: string): BookInfo[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(rawHtml, "text/html");
+  return parseSearchResultsFromDoc(source.raw, doc, source.id);
 }

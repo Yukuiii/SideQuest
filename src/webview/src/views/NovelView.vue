@@ -10,13 +10,14 @@ import SourceImport from "../components/SourceImport.vue";
 import BookList from "../components/BookList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import ReaderControls from "../components/ReaderControls.vue";
+import DisguiseView from "../components/DisguiseView.vue";
 import ShelfView from "../components/ShelfView.vue";
 import type { BookInfo, ChapterInfo } from "../core/source";
 import type { ShelfBook } from "../core/shelf/types";
 import { sourceManager, getChapters, getContent, preloadChapter } from "../core/source";
 import { loadReaderPrefs, saveReaderPrefs, FONT_SIZES, LINE_HEIGHTS } from "../utils/readerPrefs";
 import type { ReaderPrefs } from "../utils/readerPrefs";
-import { addToShelf, updateProgress, getBookProgress } from "../core/shelf/shelfManager";
+import { addToShelf, updateProgress, getBookProgress, replaceBookInfo } from "../core/shelf/shelfManager";
 import { getCacheStats, clearAllCache } from "../core/cache/cacheManager";
 
 const router = useRouter();
@@ -55,6 +56,9 @@ const shelfViewRef = ref<InstanceType<typeof ShelfView> | null>(null);
 
 /** 正文容器引用 */
 const contentContainerRef = ref<HTMLElement | null>(null);
+/** 是否处于自动滚动 */
+const isAutoScrolling = ref(false);
+let autoScrollFrame: number | null = null;
 
 // 监听偏好变化，自动保存
 watch(prefs, saveReaderPrefs, { deep: true });
@@ -72,7 +76,13 @@ watch(activeTab, (newTab) => {
 const saveProgress = useDebounceFn(() => {
   if (!selectedBook.value || chapters.value.length === 0) return;
 
-  const scrollPosition = contentContainerRef.value?.scrollTop || 0;
+  const scrollPosition = getCurrentScroll();
+  console.log("[NovelView] 保存进度", {
+    bookUrl: selectedBook.value.bookUrl,
+    chapterIndex: currentChapterIndex.value,
+    scrollPosition,
+    total: chapters.value.length,
+  });
   updateProgress(
     selectedBook.value.bookUrl,
     currentChapterIndex.value,
@@ -82,11 +92,58 @@ const saveProgress = useDebounceFn(() => {
 }, 500);
 
 /**
+ * 立即保存进度（不去抖）
+ */
+function persistProgressImmediate() {
+  if (!selectedBook.value || chapters.value.length === 0) return;
+  const scrollPosition = getCurrentScroll();
+  console.log("[NovelView] 立即保存进度", {
+    bookUrl: selectedBook.value.bookUrl,
+    chapterIndex: currentChapterIndex.value,
+    scrollPosition,
+    total: chapters.value.length,
+  });
+  updateProgress(
+    selectedBook.value.bookUrl,
+    currentChapterIndex.value,
+    scrollPosition,
+    chapters.value.length
+  );
+}
+
+/**
  * 监听滚动事件，保存进度
  */
 function handleScroll() {
-  saveProgress();
+  if (restoringScroll.value === null) {
+    saveProgress();
+  } else {
+    console.log("[NovelView] 滚动忽略（正在恢复）", restoringScroll.value);
+  }
 }
+
+// 监听正文容器 ref 变化，确保绑定滚动监听
+watch(
+  contentContainerRef,
+  (el, prev) => {
+    if (prev) {
+      prev.removeEventListener("scroll", handleScroll);
+    }
+    if (el) {
+      el.addEventListener("scroll", handleScroll, { passive: true });
+      console.log("[NovelView] 已绑定正文滚动监听");
+    }
+  },
+  { flush: "post" }
+);
+
+// 监听窗口滚动（兜底场景）
+onMounted(() => {
+  window.addEventListener("scroll", handleScroll, { passive: true });
+});
+onUnmounted(() => {
+  window.removeEventListener("scroll", handleScroll);
+});
 
 
 /** 当前字号（像素值） */
@@ -95,6 +152,8 @@ const currentFontSize = computed(() => FONT_SIZES[prefs.value.fontSizeIndex]);
 const currentLineHeight = computed(() => LINE_HEIGHTS[prefs.value.lineHeightIndex]);
 /** 当前字重 */
 const currentFontWeight = computed(() => prefs.value.fontWeight);
+/** 是否处于伪装模式 */
+const isDisguised = ref(false);
 
 /** 当前书源 */
 const currentSource = computed(() => {
@@ -109,15 +168,20 @@ const currentChapter = computed(() => {
 
 /** 缓存统计信息 */
 const cacheStats = ref(getCacheStats());
+/** 正在恢复滚动位置的标记（避免覆盖进度） */
+const restoringScroll = ref<number | null>(null);
 
 /**
  * 返回首页
  */
 function goBack() {
   if (selectedBook.value) {
+    persistProgressImmediate();
     selectedBook.value = null;
     chapters.value = [];
     content.value = "";
+    isDisguised.value = false;
+    stopAutoScroll();
   } else {
     router.push("/");
   }
@@ -135,6 +199,8 @@ async function handleSelectBook(book: BookInfo) {
   content.value = "";
   currentChapterIndex.value = 0;
   error.value = null;
+  isDisguised.value = false;
+  stopAutoScroll();
 
   selectedBook.value = book;
   await loadChapters();
@@ -150,12 +216,13 @@ async function handleSelectBook(book: BookInfo) {
         console.warn(`[NovelView] 章节索引越界，已调整：${progress.chapterIndex} → ${validChapterIndex}`);
       }
       currentChapterIndex.value = validChapterIndex;
+      restoringScroll.value = progress.scrollPosition ?? 0;
+      console.log("[NovelView] 恢复进度", {
+        chapterIndex: validChapterIndex,
+        scroll: restoringScroll.value,
+      });
       await readChapter(validChapterIndex);
       // 恢复滚动位置
-      await nextTick();
-      if (contentContainerRef.value) {
-        contentContainerRef.value.scrollTop = progress.scrollPosition;
-      }
     } else {
       // 没有进度记录，从第一章开始，并添加到书架
       await readChapter(0);
@@ -184,6 +251,8 @@ async function handleContinueReading(shelfBook: ShelfBook) {
   chapters.value = [];
   content.value = "";
   error.value = null;
+  isDisguised.value = false;
+  stopAutoScroll();
 
   // 设置书籍和进度
   selectedBook.value = shelfBook.bookInfo;
@@ -194,17 +263,17 @@ async function handleContinueReading(shelfBook: ShelfBook) {
 
   // 章节加载成功后，阅读指定章节
   if (chapters.value.length > 0) {
+    restoringScroll.value = shelfBook.scrollPosition ?? 0;
+    console.log("[NovelView] 继续阅读恢复进度", {
+      chapterIndex: shelfBook.chapterIndex,
+      scroll: restoringScroll.value,
+    });
     // 校验章节索引有效性，防止书源章节数变化导致越界
     const validChapterIndex = Math.max(0, Math.min(shelfBook.chapterIndex, chapters.value.length - 1));
     if (validChapterIndex !== shelfBook.chapterIndex) {
       console.warn(`[NovelView] 章节索引越界，已调整：${shelfBook.chapterIndex} → ${validChapterIndex}`);
     }
     await readChapter(validChapterIndex);
-    // 恢复滚动位置
-    await nextTick();
-    if (contentContainerRef.value) {
-      contentContainerRef.value.scrollTop = shelfBook.scrollPosition;
-    }
   }
 }
 
@@ -246,7 +315,7 @@ async function loadChapters() {
 /**
  * 阅读章节
  */
-async function readChapter(index: number) {
+async function readChapter(index: number, allowFallback = true) {
   if (!currentSource.value || !chapters.value[index]) return;
 
   currentChapterIndex.value = index;
@@ -262,13 +331,59 @@ async function readChapter(index: number) {
     if (!result || result.trim() === "") {
       error.value = { message: "章节内容为空" };
     } else {
-      // 内容加载成功，重置滚动位置到顶部
+      // 内容加载成功，准备恢复滚动位置
+      const shouldSkipProgressUpdate = restoringScroll.value !== null;
+      const targetScroll = restoringScroll.value ?? 0;
+
+      // 等待 DOM 渲染完成后恢复滚动
       await nextTick();
-      if (contentContainerRef.value) {
-        contentContainerRef.value.scrollTop = 0;
+
+      if (targetScroll > 0 && contentContainerRef.value) {
+        // 使用 requestAnimationFrame 轮询等待内容高度就绪
+        const el = contentContainerRef.value;
+        let attempts = 0;
+        const maxAttempts = 20; // 最多尝试 20 次（约 330ms）
+
+        const tryRestore = () => {
+          attempts++;
+          const maxScroll = el.scrollHeight - el.clientHeight;
+
+          console.log(`[NovelView] 尝试恢复滚动 (${attempts}/${maxAttempts})`, {
+            targetScroll,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+            maxScroll,
+          });
+
+          // 如果内容高度足够，或已达到最大尝试次数，执行恢复
+          if (maxScroll >= targetScroll || attempts >= maxAttempts) {
+            el.scrollTop = targetScroll;
+            if (typeof el.scrollTo === "function") {
+              el.scrollTo({ top: targetScroll, behavior: "auto" });
+            }
+
+            console.log("[NovelView] 滚动恢复完成", {
+              expected: targetScroll,
+              actual: el.scrollTop,
+              attempts,
+            });
+
+            // 清空恢复标记，允许后续保存
+            restoringScroll.value = null;
+          } else {
+            // 继续等待
+            requestAnimationFrame(tryRestore);
+          }
+        };
+
+        requestAnimationFrame(tryRestore);
+      } else {
+        // 不需要恢复滚动，立即清空标记
+        restoringScroll.value = null;
       }
+
       // 保存进度到书架
-      if (selectedBook.value) {
+      if (selectedBook.value && !shouldSkipProgressUpdate) {
         const existingProgress = getBookProgress(selectedBook.value.bookUrl);
         if (existingProgress) {
           // 更新已有的进度
@@ -319,6 +434,11 @@ async function readChapter(index: number) {
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : "加载内容失败";
+    if (allowFallback && (await trySwitchToAlternative(index))) {
+      // 已成功切换备用源并加载章节
+      loading.value = false;
+      return;
+    }
     error.value = {
       message,
       retry: () => readChapter(index), // 提供重试回调
@@ -391,6 +511,61 @@ function refreshCacheStats() {
 }
 
 /**
+ * 尝试切换到备用书源
+ */
+async function trySwitchToAlternative(targetIndex: number): Promise<boolean> {
+  if (!selectedBook.value?.alternativeSources || selectedBook.value.alternativeSources.length === 0) {
+    return false;
+  }
+
+  const originalBook = selectedBook.value;
+  const originalSource = sourceManager.getById(originalBook.sourceId);
+  const alternatives = [...selectedBook.value.alternativeSources];
+
+  // 确保当前源也记录在备用列表中，便于回退
+  if (!alternatives.some((item) => item.sourceId === originalBook.sourceId)) {
+    alternatives.unshift({
+      sourceId: originalBook.sourceId,
+      sourceName: originalSource?.name || "当前源",
+      bookUrl: originalBook.bookUrl,
+    });
+  }
+
+  const fallbackList = alternatives.filter((item) => item.sourceId !== originalBook.sourceId);
+
+  for (const alt of fallbackList) {
+    const altSource = sourceManager.getById(alt.sourceId);
+    if (!altSource) continue;
+
+    const altBook: BookInfo = {
+      ...originalBook,
+      sourceId: alt.sourceId,
+      bookUrl: alt.bookUrl,
+      alternativeSources: alternatives,
+    };
+
+    try {
+      const altChapters = await getChapters(altSource, altBook);
+      if (altChapters.length === 0) continue;
+
+      chapters.value = altChapters;
+      selectedBook.value = altBook;
+
+      const validIndex = Math.max(0, Math.min(targetIndex, altChapters.length - 1));
+      currentChapterIndex.value = validIndex;
+      replaceBookInfo(originalBook.bookUrl, altBook, validIndex);
+
+      await readChapter(validIndex, false);
+      return true;
+    } catch (err) {
+      console.warn("[NovelView] 切换备用源失败:", err);
+    }
+  }
+
+  return false;
+}
+
+/**
  * 快捷键处理函数
  */
 function handleKeydown(event: KeyboardEvent) {
@@ -412,7 +587,10 @@ function handleKeydown(event: KeyboardEvent) {
       prefs.value = { ...prefs.value, fontSizeIndex: nextIndex };
     },
     "b": () => {
-      prefs.value = { ...prefs.value, hideContent: !prefs.value.hideContent };
+      isDisguised.value = !isDisguised.value;
+      if (isDisguised.value) {
+        stopAutoScroll();
+      }
     },
   };
 
@@ -431,7 +609,95 @@ onMounted(() => {
 // 移除快捷键监听器
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
+  stopAutoScroll();
 });
+
+/**
+ * 开启自动滚动
+ */
+function startAutoScroll() {
+  if (isAutoScrolling.value) return;
+  isAutoScrolling.value = true;
+  const step = () => {
+    if (!contentContainerRef.value) {
+      stopAutoScroll();
+      return;
+    }
+    const el = contentContainerRef.value;
+    const max = el.scrollHeight - el.clientHeight;
+    const next = el.scrollTop + 0.8;
+    if (next >= max) {
+      el.scrollTop = max;
+      stopAutoScroll();
+      return;
+    }
+    el.scrollTop = next;
+    autoScrollFrame = requestAnimationFrame(step);
+  };
+  autoScrollFrame = requestAnimationFrame(step);
+}
+
+/**
+ * 停止自动滚动
+ */
+function stopAutoScroll() {
+  if (autoScrollFrame !== null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
+  isAutoScrolling.value = false;
+}
+
+/**
+ * 切换自动滚动
+ */
+function toggleAutoScroll() {
+  if (isAutoScrolling.value) {
+    stopAutoScroll();
+  } else {
+    startAutoScroll();
+  }
+}
+
+/**
+ * 快速滚动到顶部，便于返回/调整样式
+ */
+function scrollToTop() {
+  const el = contentContainerRef.value;
+  if (el) {
+    console.log("[NovelView] scrollToTop container before:", el.scrollTop, el.scrollHeight, el.clientHeight);
+    el.scrollTop = 0;
+    if (typeof el.scrollTo === "function") {
+      el.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    console.log("[NovelView] scrollToTop container after:", el.scrollTop);
+  }
+  // 兜底滚动整个页面
+  if (typeof window.scrollTo === "function") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+/**
+ * 获取当前滚动位置（容器优先，兜底 window）
+ */
+function getCurrentScroll(): number {
+  const el = contentContainerRef.value;
+  if (el) {
+    const isScrollable = el.scrollHeight - el.clientHeight > 1;
+    const val = isScrollable ? el.scrollTop : window.scrollY || document.documentElement.scrollTop || 0;
+    return val;
+  }
+  return window.scrollY || document.documentElement.scrollTop || 0;
+}
+
+/**
+ * 快速切换字号
+ */
+function quickToggleFontSize() {
+  const nextIndex = (prefs.value.fontSizeIndex + 1) % FONT_SIZES.length;
+  prefs.value = { ...prefs.value, fontSizeIndex: nextIndex };
+}
 </script>
 
 <template>
@@ -446,7 +712,7 @@ onUnmounted(() => {
         ←
       </button>
       <span class="flex-1 font-medium truncate">
-        {{ selectedBook ? selectedBook.name : "📚 阅读者" }}
+        {{ isDisguised ? "Side Quest" : (selectedBook ? selectedBook.name : "📚 阅读者") }}
       </span>
     </div>
 
@@ -454,13 +720,19 @@ onUnmounted(() => {
     <template v-if="selectedBook && content">
       <div class="flex flex-1 flex-col overflow-hidden">
         <!-- 控制栏 -->
-        <ReaderControls :prefs="prefs" @update:prefs="prefs = $event" />
+        <ReaderControls
+          v-if="!isDisguised"
+          :prefs="prefs"
+          :is-auto-scrolling="isAutoScrolling"
+          @update:prefs="prefs = $event"
+          @toggle-auto-scroll="toggleAutoScroll"
+        />
 
-        <!-- 老板键遮罩 -->
-        <div v-if="prefs.hideContent" class="flex flex-1 items-center justify-center">
-          <div class="text-center text-sm text-[var(--vscode-descriptionForeground)]">
-            <p>内容已隐藏</p>
-            <p class="mt-2 text-xs">按 B 键恢复显示</p>
+        <!-- 伪装模式 -->
+        <div v-if="isDisguised" class="flex flex-1 flex-col overflow-hidden">
+          <DisguiseView />
+          <div class="border-t border-[var(--vscode-panel-border)] px-3 py-1 text-center text-xs text-[var(--vscode-descriptionForeground)]">
+            按 B 键返回正文
           </div>
         </div>
 
@@ -486,7 +758,7 @@ onUnmounted(() => {
         </div>
 
         <!-- 翻页控制 -->
-        <div class="flex items-center gap-2 border-t border-[var(--vscode-panel-border)] p-2">
+        <div v-if="!isDisguised" class="flex items-center gap-2 border-t border-[var(--vscode-panel-border)] p-2">
           <button
             class="flex-1 rounded bg-[var(--vscode-button-secondaryBackground)] py-1.5 text-sm disabled:opacity-50"
             :disabled="currentChapterIndex === 0"
@@ -506,6 +778,41 @@ onUnmounted(() => {
             @click="nextChapter"
           >
             下一章
+          </button>
+        </div>
+
+        <!-- 悬浮快捷操作 -->
+        <div
+          v-if="!isDisguised"
+          class="fixed bottom-4 right-4 z-30 flex flex-col gap-2 pointer-events-auto"
+        >
+          <button
+            class="rounded-full bg-[var(--vscode-button-background)] px-3 py-2 text-xs text-[var(--vscode-button-foreground)] shadow-lg hover:bg-[var(--vscode-button-hoverBackground)]"
+            title="返回"
+            @click="goBack"
+          >
+            返回
+          </button>
+          <button
+            class="rounded-full bg-[var(--vscode-button-secondaryBackground)] px-3 py-2 text-xs text-[var(--vscode-button-secondaryForeground)] shadow-lg hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+            title="回到顶部"
+            @click="scrollToTop"
+          >
+            顶部
+          </button>
+          <button
+            class="rounded-full bg-[var(--vscode-button-secondaryBackground)] px-3 py-2 text-xs text-[var(--vscode-button-secondaryForeground)] shadow-lg hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+            title="目录"
+            @click="showChapterList = true"
+          >
+            目录
+          </button>
+          <button
+            class="rounded-full bg-[var(--vscode-button-secondaryBackground)] px-3 py-2 text-xs text-[var(--vscode-button-secondaryForeground)] shadow-lg hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+            title="切换字号"
+            @click="quickToggleFontSize"
+          >
+            字号
           </button>
         </div>
       </div>
@@ -658,7 +965,7 @@ onUnmounted(() => {
     <!-- 章节列表弹窗 -->
     <div
       v-if="showChapterList"
-      class="absolute inset-0 flex flex-col bg-[var(--vscode-sideBar-background)]"
+      class="fixed inset-0 z-40 flex flex-col bg-[var(--vscode-sideBar-background)]"
     >
       <div class="flex items-center justify-between border-b border-[var(--vscode-panel-border)] p-3">
         <span class="font-medium">目录</span>

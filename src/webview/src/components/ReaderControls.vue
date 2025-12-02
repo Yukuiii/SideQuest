@@ -5,10 +5,12 @@ import { FONT_SIZES, LINE_HEIGHTS } from "../utils/readerPrefs";
 
 interface Props {
   prefs: ReaderPrefs;
+  isAutoScrolling?: boolean;
 }
 
 interface Emits {
   (e: "update:prefs", value: ReaderPrefs): void;
+  (e: "toggleAutoScroll"): void;
 }
 
 const props = defineProps<Props>();
@@ -42,6 +44,13 @@ function toggleFontWeight() {
   const nextWeight = props.prefs.fontWeight === "normal" ? "bold" : "normal";
   emit("update:prefs", { ...props.prefs, fontWeight: nextWeight });
 }
+
+/**
+ * 切换自动滚动
+ */
+function handleToggleAutoScroll() {
+  emit("toggleAutoScroll");
+}
 </script>
 
 <template>
@@ -69,8 +78,16 @@ function toggleFontWeight() {
     >
       {{ fontWeightLabel }}
     </button>
+    <button
+      class="rounded px-2 py-1 hover:bg-[var(--vscode-list-hoverBackground)]"
+      :class="props.isAutoScrolling ? 'text-[var(--vscode-textLink-foreground)]' : ''"
+      @click="handleToggleAutoScroll"
+      title="自动滚动"
+    >
+      {{ props.isAutoScrolling ? "停止滚动" : "自动滚动" }}
+    </button>
     <div class="ml-auto text-[var(--vscode-descriptionForeground)]">
-      快捷键:  D 目录 | F 字号 | B 隐藏
+      快捷键:  D 目录 | F 字号 | B 伪装
     </div>
   </div>
 </template>

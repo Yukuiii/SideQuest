@@ -1,13 +1,12 @@
 /**
  * 阅读器偏好管理模块
- * 统一管理字号、行高、字重、老板键等配置
+ * 统一管理字号、行高、字重等配置
  */
 
 export interface ReaderPrefs {
   fontSizeIndex: number; // 0-3: [12, 14, 16, 18]
   lineHeightIndex: number; // 0-2: [1.5, 1.7, 1.9]
   fontWeight: "normal" | "bold";
-  hideContent: boolean; // 老板键状态
 }
 
 // 配置常量
@@ -24,7 +23,6 @@ const DEFAULT_PREFS: ReaderPrefs = {
   fontSizeIndex: 1, // 14px
   lineHeightIndex: 1, // 1.7
   fontWeight: "normal",
-  hideContent: false,
 };
 
 /**
