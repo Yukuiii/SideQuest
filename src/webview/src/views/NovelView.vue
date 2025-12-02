@@ -3,21 +3,26 @@
  * 阅读者视图组件
  * 提供小说阅读功能：书源导入、搜索、阅读
  */
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
+import { useDebounceFn } from "@vueuse/core";
 import SourceImport from "../components/SourceImport.vue";
 import BookList from "../components/BookList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import ReaderControls from "../components/ReaderControls.vue";
+import ShelfView from "../components/ShelfView.vue";
 import type { BookInfo, ChapterInfo } from "../core/source";
-import { sourceManager, getChapters, getContent } from "../core/source";
-import { loadReaderPrefs, saveReaderPrefs, FONT_SIZES, LINE_HEIGHTS, PAGE_WIDTHS } from "../utils/readerPrefs";
+import type { ShelfBook } from "../core/shelf/types";
+import { sourceManager, getChapters, getContent, preloadChapter } from "../core/source";
+import { loadReaderPrefs, saveReaderPrefs, FONT_SIZES, LINE_HEIGHTS } from "../utils/readerPrefs";
 import type { ReaderPrefs } from "../utils/readerPrefs";
+import { addToShelf, updateProgress, getBookProgress } from "../core/shelf/shelfManager";
+import { getCacheStats, clearAllCache } from "../core/cache/cacheManager";
 
 const router = useRouter();
 
 /** 当前标签页 */
-const activeTab = ref<"search" | "import">("search");
+const activeTab = ref<"shelf" | "search" | "import">("shelf");
 /** 当前选中的书籍 */
 const selectedBook = ref<BookInfo | null>(null);
 /** 章节列表 */
@@ -39,12 +44,43 @@ const showChapterList = ref(false);
 const showDeleteConfirm = ref(false);
 /** 待删除的书源 */
 const pendingDeleteSource = ref<{ id: string; name: string } | null>(null);
+/** 清空缓存确认对话框状态 */
+const showClearCacheConfirm = ref(false);
 
 /** 阅读器偏好设置 */
 const prefs = ref<ReaderPrefs>(loadReaderPrefs());
 
+/** 书架组件引用 */
+const shelfViewRef = ref<InstanceType<typeof ShelfView> | null>(null);
+
+/** 正文容器引用 */
+const contentContainerRef = ref<HTMLElement | null>(null);
+
 // 监听偏好变化，自动保存
 watch(prefs, saveReaderPrefs, { deep: true });
+
+/**
+ * 保存当前阅读进度（防抖）
+ */
+const saveProgress = useDebounceFn(() => {
+  if (!selectedBook.value || chapters.value.length === 0) return;
+
+  const scrollPosition = contentContainerRef.value?.scrollTop || 0;
+  updateProgress(
+    selectedBook.value.bookUrl,
+    currentChapterIndex.value,
+    scrollPosition,
+    chapters.value.length
+  );
+}, 500);
+
+/**
+ * 监听滚动事件，保存进度
+ */
+function handleScroll() {
+  saveProgress();
+}
+
 
 /** 当前字号（像素值） */
 const currentFontSize = computed(() => FONT_SIZES[prefs.value.fontSizeIndex]);
@@ -63,6 +99,9 @@ const currentSource = computed(() => {
 const currentChapter = computed(() => {
   return chapters.value[currentChapterIndex.value];
 });
+
+/** 缓存统计信息 */
+const cacheStats = computed(() => getCacheStats());
 
 /**
  * 返回首页
@@ -92,6 +131,64 @@ async function handleSelectBook(book: BookInfo) {
 
   selectedBook.value = book;
   await loadChapters();
+
+  // 章节加载成功后，检查是否有进度，或者从第一章开始
+  if (chapters.value.length > 0) {
+    const progress = getBookProgress(book.bookUrl);
+    if (progress) {
+      // 有进度记录，恢复到上次阅读位置
+      currentChapterIndex.value = progress.chapterIndex;
+      await readChapter(progress.chapterIndex);
+      // 恢复滚动位置
+      await nextTick();
+      if (contentContainerRef.value) {
+        contentContainerRef.value.scrollTop = progress.scrollPosition;
+      }
+    } else {
+      // 没有进度记录，从第一章开始，并添加到书架
+      await readChapter(0);
+      addToShelf({
+        bookInfo: book,
+        status: "reading",
+        chapterIndex: 0,
+        totalChapters: chapters.value.length,
+        scrollPosition: 0,
+        addedAt: Date.now(),
+        lastReadAt: Date.now(),
+      });
+      // 刷新书架视图
+      shelfViewRef.value?.refresh();
+    }
+  }
+}
+
+/**
+ * 从书架继续阅读
+ */
+async function handleContinueReading(shelfBook: ShelfBook) {
+  console.log("[NovelView] 从书架继续阅读:", shelfBook);
+
+  // 清空旧状态
+  chapters.value = [];
+  content.value = "";
+  error.value = null;
+
+  // 设置书籍和进度
+  selectedBook.value = shelfBook.bookInfo;
+  currentChapterIndex.value = shelfBook.chapterIndex;
+
+  // 加载章节列表
+  await loadChapters();
+
+  // 章节加载成功后，阅读指定章节
+  if (chapters.value.length > 0) {
+    await readChapter(shelfBook.chapterIndex);
+    // 恢复滚动位置
+    await nextTick();
+    if (contentContainerRef.value) {
+      contentContainerRef.value.scrollTop = shelfBook.scrollPosition;
+    }
+  }
 }
 
 /**
@@ -147,6 +244,51 @@ async function readChapter(index: number) {
     content.value = result;
     if (!result || result.trim() === "") {
       error.value = { message: "章节内容为空" };
+    } else {
+      // 内容加载成功，重置滚动位置到顶部
+      await nextTick();
+      if (contentContainerRef.value) {
+        contentContainerRef.value.scrollTop = 0;
+      }
+      // 保存进度到书架
+      if (selectedBook.value) {
+        const existingProgress = getBookProgress(selectedBook.value.bookUrl);
+        if (existingProgress) {
+          // 更新已有的进度
+          updateProgress(
+            selectedBook.value.bookUrl,
+            index,
+            0, // 新章节从顶部开始
+            chapters.value.length
+          );
+        } else {
+          // 首次阅读，添加到书架
+          addToShelf({
+            bookInfo: selectedBook.value,
+            status: "reading",
+            chapterIndex: index,
+            totalChapters: chapters.value.length,
+            scrollPosition: 0,
+            addedAt: Date.now(),
+            lastReadAt: Date.now(),
+          });
+        }
+        // 刷新书架视图
+        shelfViewRef.value?.refresh();
+      }
+
+      // 预加载下一章（1秒后）
+      const nextIndex = index + 1;
+      if (nextIndex < chapters.value.length && currentSource.value) {
+        const nextChapter = chapters.value[nextIndex];
+        if (nextChapter) {
+          setTimeout(() => {
+            if (currentSource.value && nextChapter) {
+              preloadChapter(currentSource.value, nextChapter);
+            }
+          }, 1000);
+        }
+      }
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : "加载内容失败";
@@ -196,6 +338,20 @@ function confirmDeleteSource() {
     sourceManager.delete(pendingDeleteSource.value.id);
     pendingDeleteSource.value = null;
   }
+}
+
+/**
+ * 清空缓存 - 显示确认对话框
+ */
+function handleClearCache() {
+  showClearCacheConfirm.value = true;
+}
+
+/**
+ * 确认清空缓存
+ */
+function confirmClearCache() {
+  clearAllCache();
 }
 
 /**
@@ -273,7 +429,12 @@ onUnmounted(() => {
         </div>
 
         <!-- 正文区域 -->
-        <div v-else class="flex-1 overflow-auto p-4">
+        <div
+          v-else
+          ref="contentContainerRef"
+          class="flex-1 overflow-auto p-4"
+          @scroll="handleScroll"
+        >
           <!-- 章节标题 -->
           <h3 class="mb-4 text-center font-medium">{{ currentChapter?.name }}</h3>
           <!-- 正文 -->
@@ -340,6 +501,13 @@ onUnmounted(() => {
       <div class="flex border-b border-[var(--vscode-panel-border)]">
         <button
           class="flex-1 py-2 text-sm"
+          :class="activeTab === 'shelf' ? 'border-b-2 border-[var(--vscode-textLink-foreground)] text-[var(--vscode-textLink-foreground)]' : 'text-[var(--vscode-descriptionForeground)]'"
+          @click="activeTab = 'shelf'"
+        >
+          书架
+        </button>
+        <button
+          class="flex-1 py-2 text-sm"
           :class="activeTab === 'search' ? 'border-b-2 border-[var(--vscode-textLink-foreground)] text-[var(--vscode-textLink-foreground)]' : 'text-[var(--vscode-descriptionForeground)]'"
           @click="activeTab = 'search'"
         >
@@ -356,14 +524,36 @@ onUnmounted(() => {
 
       <!-- 内容区域 -->
       <div class="flex flex-1 flex-col overflow-hidden p-4">
+        <!-- 书架 -->
+        <div v-if="activeTab === 'shelf'" class="flex-1 overflow-hidden">
+          <ShelfView ref="shelfViewRef" @continue-reading="handleContinueReading" />
+        </div>
+
         <!-- 搜索 -->
-        <div v-if="activeTab === 'search'" class="flex-1 overflow-hidden">
+        <div v-else-if="activeTab === 'search'" class="flex-1 overflow-hidden">
           <BookList @select="handleSelectBook" />
         </div>
 
         <!-- 书源导入 -->
         <div v-else-if="activeTab === 'import'" class="flex flex-1 flex-col overflow-hidden">
           <SourceImport @imported="activeTab = 'search'" />
+
+          <!-- 缓存管理 -->
+          <div class="mt-4 flex items-center justify-between rounded border border-[var(--vscode-panel-border)] p-3">
+            <div class="flex flex-col gap-1">
+              <div class="text-sm font-medium">章节缓存</div>
+              <div class="text-xs text-[var(--vscode-descriptionForeground)]">
+                {{ cacheStats.count }} 章节 · {{ cacheStats.sizeText }}
+              </div>
+            </div>
+            <button
+              class="rounded bg-[var(--vscode-button-secondaryBackground)] px-3 py-1.5 text-xs hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+              @click="handleClearCache"
+            >
+              清空缓存
+            </button>
+          </div>
+
           <!-- 已导入的书源 -->
           <div class="mt-4 flex flex-1 flex-col overflow-hidden">
             <div class="mb-2 text-sm text-[var(--vscode-descriptionForeground)]">
@@ -464,6 +654,16 @@ onUnmounted(() => {
       confirm-text="删除"
       :danger="true"
       @confirm="confirmDeleteSource"
+    />
+
+    <!-- 清空缓存确认对话框 -->
+    <ConfirmDialog
+      v-model:visible="showClearCacheConfirm"
+      title="清空缓存"
+      message="确定要清空所有章节缓存吗？清空后将需要重新下载章节内容。"
+      confirm-text="清空"
+      :danger="true"
+      @confirm="confirmClearCache"
     />
   </div>
 </template>

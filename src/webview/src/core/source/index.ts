@@ -35,7 +35,7 @@ export type { ImportResult, SourceFormat } from "./sourceManager";
 export { SourceManager, sourceManager, detectSourceFormat } from "./sourceManager";
 
 // 书籍服务
-export { searchBooks, getChapters, getContent } from "./bookService";
+export { searchBooks, getChapters, getContent, preloadChapter } from "./bookService";
 
 // 内置书源
 export {
