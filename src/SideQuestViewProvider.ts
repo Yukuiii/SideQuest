@@ -61,12 +61,14 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'market.refresh':
-          this._postMarketUpdate();
+          // 交给 MarketService 处理真实刷新
+          void vscode.commands.executeCommand('side-quest.market.refresh');
           break;
 
         case 'market.addWatch':
           logger.info('Receive watch add request', payload);
-          this._postMarketUpdate();
+          // TODO: 后续支持在扩展端维护自选并触发刷新
+          void vscode.commands.executeCommand('side-quest.market.refresh');
           break;
 
         case 'requestTheme':
@@ -217,7 +219,7 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
       },
     });
 
-    this._postMarketUpdate();
+    this.postMarketUpdate([], Date.now());
   }
 
   /**
@@ -241,15 +243,15 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
   /**
    * 向 webview 发送行情占位数据（迭代 1 占位）
    */
-  private _postMarketUpdate(): void {
+  public postMarketUpdate(quotes: unknown[], lastUpdate: number): void {
     if (!this._view) {
       return;
     }
     this._view.webview.postMessage({
       command: 'market.update',
       payload: {
-        quotes: [],
-        lastUpdate: Date.now(),
+        quotes,
+        lastUpdate,
       },
     });
   }
