@@ -9,6 +9,12 @@ import { httpService, type HttpRequestOptions } from './services/httpService';
 export class SideQuestViewProvider implements vscode.WebviewViewProvider {
   /** 视图类型标识符，与 package.json 中的配置对应 */
   public static readonly viewType = 'side-quest.mainView';
+  /** 当前 Webview 视图实例 */
+  private _view?: vscode.WebviewView;
+  /** 主题变化监听句柄 */
+  private _themeChangeListener?: vscode.Disposable;
+  /** 配置变化监听句柄 */
+  private _configurationListener?: vscode.Disposable;
 
   /**
    * 构造函数
@@ -28,6 +34,8 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
+    this._view = webviewView;
+
     // 配置 Webview 选项
     webviewView.webview.options = {
       enableScripts: true,
@@ -50,6 +58,10 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
           vscode.window.showInformationMessage(`功能开发中：${payload.mode}`);
           break;
 
+        case 'requestTheme':
+          this._postThemeUpdate();
+          break;
+
         case 'httpRequest':
           // 代理 HTTP 请求
           await this._handleHttpRequest(webviewView.webview, requestId, payload);
@@ -60,6 +72,30 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
           await this._openUrlInSimpleBrowser(payload.url);
           break;
       }
+    });
+
+    this._postInitMessage();
+
+    this._themeChangeListener?.dispose();
+    this._themeChangeListener = vscode.window.onDidChangeActiveColorTheme((colorTheme) => {
+      logger.debug('Active color theme changed', colorTheme.kind);
+      this._postThemeUpdate(colorTheme);
+    });
+
+    this._configurationListener?.dispose();
+    this._configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('side-quest.reader.lockTheme')) {
+        logger.debug('Lock theme configuration changed');
+        this._postThemeUpdate();
+      }
+    });
+
+    webviewView.onDidDispose(() => {
+      this._themeChangeListener?.dispose();
+      this._configurationListener?.dispose();
+      this._themeChangeListener = undefined;
+      this._configurationListener = undefined;
+      this._view = undefined;
     });
   }
 
@@ -146,6 +182,81 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
           },
         },
       });
+    }
+  }
+
+  /**
+   * 发送初始化消息，包含主题与偏好
+   */
+  private _postInitMessage(): void {
+    if (!this._view) {
+      return;
+    }
+
+    this._view.webview.postMessage({
+      command: 'init',
+      payload: {
+        theme: this._getThemeInfo(),
+        prefs: this._getReaderPreferences(),
+      },
+    });
+  }
+
+  /**
+   * 发送主题更新消息
+   * @param colorTheme VS Code 当前主题
+   */
+  private _postThemeUpdate(colorTheme: vscode.ColorTheme = vscode.window.activeColorTheme): void {
+    if (!this._view) {
+      return;
+    }
+
+    this._view.webview.postMessage({
+      command: 'updateTheme',
+      payload: {
+        theme: this._getThemeInfo(colorTheme),
+        prefs: this._getReaderPreferences(),
+      },
+    });
+  }
+
+  /**
+   * 获取当前主题信息
+   * @param colorTheme VS Code 主题
+   * @returns 主题描述
+   */
+  private _getThemeInfo(colorTheme: vscode.ColorTheme = vscode.window.activeColorTheme) {
+    return {
+      kind: this._mapThemeKind(colorTheme.kind),
+      themeName: colorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'high-contrast' : colorTheme.kind === vscode.ColorThemeKind.HighContrastLight ? 'high-contrast-light' : 'default',
+    };
+  }
+
+  /**
+   * 获取阅读者主题相关偏好
+   */
+  private _getReaderPreferences(): { lockTheme: 'auto' | 'light' | 'dark' } {
+    const config = vscode.workspace.getConfiguration('side-quest');
+    const lockTheme = config.get<'auto' | 'light' | 'dark'>('reader.lockTheme', 'auto');
+    return { lockTheme };
+  }
+
+  /**
+   * 映射 VS Code 主题枚举到 Webview 可用的字符串
+   * @param kind VS Code 主题类型
+   */
+  private _mapThemeKind(kind: vscode.ColorThemeKind): 'light' | 'dark' | 'highContrast' | 'highContrastLight' {
+    switch (kind) {
+      case vscode.ColorThemeKind.Light:
+        return 'light';
+      case vscode.ColorThemeKind.Dark:
+        return 'dark';
+      case vscode.ColorThemeKind.HighContrast:
+        return 'highContrast';
+      case vscode.ColorThemeKind.HighContrastLight:
+        return 'highContrastLight';
+      default:
+        return 'dark';
     }
   }
 

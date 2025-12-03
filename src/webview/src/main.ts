@@ -6,6 +6,10 @@ import "./style.css";
 import App from "./App.vue";
 import router from "./router";
 import { showToast } from "./utils/toast";
+import { setupThemeBridge } from "./core/theme";
+
+// 初始化主题同步（请求初始主题 + 监听更新）
+setupThemeBridge();
 
 const app = createApp(App);
 app.use(router);

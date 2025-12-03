@@ -10,7 +10,10 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:side-quest.mainView",
+    "onCommand:side-quest.helloWorld"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -30,6 +33,22 @@
           "name": "Side Quest"
         }
       ]
+    },
+    "configuration": {
+      "title": "Side Quest",
+      "properties": {
+        "side-quest.reader.lockTheme": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "light", "dark"],
+          "markdownEnumDescriptions": [
+            "跟随 VS Code 主题实时切换。",
+            "强制使用浅色模式。",
+            "强制使用深色模式。"
+          ],
+          "markdownDescription": "阅读者模式主题跟随策略：自动跟随 VS Code 或固定为浅色/深色。"
+        }
+      }
     },
     "commands": [
       {
