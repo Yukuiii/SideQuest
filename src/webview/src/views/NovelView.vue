@@ -19,6 +19,8 @@ import { loadReaderPrefs, saveReaderPrefs, FONT_SIZES, LINE_HEIGHTS } from "../u
 import type { ReaderPrefs } from "../utils/readerPrefs";
 import { addToShelf, updateProgress, getBookProgress, replaceBookInfo } from "../core/shelf/shelfManager";
 import { getCacheStats, clearAllCache } from "../core/cache/cacheManager";
+import { showToast } from "../utils/toast";
+import { postMessage } from "../utils/vscode";
 
 const router = useRouter();
 
@@ -154,6 +156,10 @@ const currentLineHeight = computed(() => LINE_HEIGHTS[prefs.value.lineHeightInde
 const currentFontWeight = computed(() => prefs.value.fontWeight);
 /** 是否处于伪装模式 */
 const isDisguised = ref(false);
+/** 当前伪装模板 */
+const disguiseTemplate = ref<"terminal" | "stacktrace">("terminal");
+/** 伪装内容刷新 key（进入伪装时递增） */
+const disguiseRefreshKey = ref(0);
 
 /** 当前书源 */
 const currentSource = computed(() => {
@@ -565,6 +571,41 @@ async function trySwitchToAlternative(targetIndex: number): Promise<boolean> {
   return false;
 }
 
+function pickDisguiseTemplate() {
+  disguiseTemplate.value = Math.random() > 0.5 ? "terminal" : "stacktrace";
+}
+
+function toggleDisguise(source: "ui" | "hotkey" | "command" = "ui") {
+  if (!selectedBook.value || !content.value) {
+    showToast("打开书籍后才可使用老板键");
+    return;
+  }
+  const nextDisguise = !isDisguised.value;
+  if (nextDisguise) {
+    pickDisguiseTemplate();
+    disguiseRefreshKey.value += 1;
+    stopAutoScroll();
+  }
+  isDisguised.value = nextDisguise;
+  postMessage("toggleDisguise", {
+    mode: nextDisguise ? "disguise" : "reading",
+    template: disguiseTemplate.value,
+    source,
+  });
+}
+
+function handleExtensionMessage(event: MessageEvent) {
+  const message = event.data as { command?: string; payload?: any };
+  if (!message || typeof message !== "object") return;
+  if (message.command === "toggleDisguise") {
+    const template = message.payload?.template;
+    if (template === "terminal" || template === "stacktrace") {
+      disguiseTemplate.value = template;
+    }
+    toggleDisguise("command");
+  }
+}
+
 /**
  * 快捷键处理函数
  */
@@ -587,10 +628,7 @@ function handleKeydown(event: KeyboardEvent) {
       prefs.value = { ...prefs.value, fontSizeIndex: nextIndex };
     },
     "b": () => {
-      isDisguised.value = !isDisguised.value;
-      if (isDisguised.value) {
-        stopAutoScroll();
-      }
+      toggleDisguise("hotkey");
     },
   };
 
@@ -604,11 +642,13 @@ function handleKeydown(event: KeyboardEvent) {
 // 注册快捷键监听器
 onMounted(() => {
   window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("message", handleExtensionMessage);
 });
 
 // 移除快捷键监听器
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("message", handleExtensionMessage);
   stopAutoScroll();
 });
 
@@ -729,16 +769,13 @@ function quickToggleFontSize() {
         />
 
         <!-- 伪装模式 -->
-        <div v-if="isDisguised" class="flex flex-1 flex-col overflow-hidden">
-          <DisguiseView />
-          <div class="border-t border-[var(--vscode-panel-border)] px-3 py-1 text-center text-xs text-[var(--vscode-descriptionForeground)]">
-            按 B 键返回正文
-          </div>
+        <div v-show="isDisguised" class="flex flex-1 flex-col overflow-hidden">
+          <DisguiseView :template="disguiseTemplate" :refresh-key="disguiseRefreshKey" />
         </div>
 
-        <!-- 正文区域 -->
+        <!-- 正文区域，使用 v-show 保留 DOM，避免切换回正文时滚动丢失 -->
         <div
-          v-else
+          v-show="!isDisguised"
           ref="contentContainerRef"
           class="flex-1 overflow-auto p-4"
           @scroll="handleScroll"

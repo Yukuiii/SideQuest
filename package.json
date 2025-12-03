@@ -12,7 +12,8 @@
   ],
   "activationEvents": [
     "onView:side-quest.mainView",
-    "onCommand:side-quest.helloWorld"
+    "onCommand:side-quest.helloWorld",
+    "onCommand:side-quest.reader.toggleDisguise"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -54,6 +55,10 @@
       {
         "command": "side-quest.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "side-quest.reader.toggleDisguise",
+        "title": "Side Quest: 切换伪装（Boss Key）"
       }
     ]
   },
