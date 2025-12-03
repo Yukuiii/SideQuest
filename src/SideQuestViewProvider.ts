@@ -15,12 +15,14 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
   private _themeChangeListener?: vscode.Disposable;
   /** 配置变化监听句柄 */
   private _configurationListener?: vscode.Disposable;
+  /** 待导航路由（视图未就绪时缓存） */
+  private _pendingRoute?: string;
 
   /**
    * 构造函数
    * @param _extensionUri - 扩展的根目录 URI，用于加载本地资源
    */
-  constructor(private readonly _extensionUri: vscode.Uri) {}
+  constructor(private readonly _extensionUri: vscode.Uri, private readonly _context?: vscode.ExtensionContext) {}
 
   /**
    * 解析 Webview 视图
@@ -56,6 +58,15 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
       switch (command) {
         case 'selectMode':
           vscode.window.showInformationMessage(`功能开发中：${payload.mode}`);
+          break;
+
+        case 'market.refresh':
+          this._postMarketUpdate();
+          break;
+
+        case 'market.addWatch':
+          logger.info('Receive watch add request', payload);
+          this._postMarketUpdate();
           break;
 
         case 'requestTheme':
@@ -97,6 +108,11 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
       this._configurationListener = undefined;
       this._view = undefined;
     });
+
+    if (this._pendingRoute) {
+      this.navigateTo(this._pendingRoute);
+      this._pendingRoute = undefined;
+    }
   }
 
   /**
@@ -200,6 +216,8 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
         prefs: this._getReaderPreferences(),
       },
     });
+
+    this._postMarketUpdate();
   }
 
   /**
@@ -218,6 +236,43 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
         prefs: this._getReaderPreferences(),
       },
     });
+  }
+
+  /**
+   * 向 webview 发送行情占位数据（迭代 1 占位）
+   */
+  private _postMarketUpdate(): void {
+    if (!this._view) {
+      return;
+    }
+    this._view.webview.postMessage({
+      command: 'market.update',
+      payload: {
+        quotes: [],
+        lastUpdate: Date.now(),
+      },
+    });
+  }
+
+  /**
+   * 导航到指定路由
+   */
+  public navigateTo(route: string): void {
+    if (this._view) {
+      this._view.webview.postMessage({
+        command: 'navigate',
+        payload: { route },
+      });
+    } else {
+      this._pendingRoute = route;
+    }
+  }
+
+  /**
+   * 导航到操盘手路由
+   */
+  public navigateMarket(): void {
+    this.navigateTo('/market');
   }
 
   /**

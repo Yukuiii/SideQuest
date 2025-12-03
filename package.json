@@ -13,7 +13,10 @@
   "activationEvents": [
     "onView:side-quest.mainView",
     "onCommand:side-quest.helloWorld",
-    "onCommand:side-quest.reader.toggleDisguise"
+    "onCommand:side-quest.reader.toggleDisguise",
+    "onCommand:side-quest.market.show",
+    "onCommand:side-quest.market.refresh",
+    "onCommand:side-quest.market.nextSymbol"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -48,6 +51,32 @@
             "强制使用深色模式。"
           ],
           "markdownDescription": "阅读者模式主题跟随策略：自动跟随 VS Code 或固定为浅色/深色。"
+        },
+        "side-quest.market.watchlist": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "操盘手自选标的列表，每项包含 type/symbol/sourceId，可选 displayName。"
+        },
+        "side-quest.market.refreshInterval": {
+          "type": "number",
+          "default": 60,
+          "markdownDescription": "行情刷新间隔（秒）。"
+        },
+        "side-quest.market.rotateInterval": {
+          "type": "number",
+          "default": 3,
+          "markdownDescription": "状态栏轮播间隔（秒）。"
+        },
+        "side-quest.market.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "是否自动刷新行情数据。"
+        },
+        "side-quest.market.colorMode": {
+          "type": "string",
+          "enum": ["default", "reverse", "theme"],
+          "default": "default",
+          "markdownDescription": "涨跌颜色模式：default(红涨绿跌)/reverse/跟随主题。"
         }
       }
     },
@@ -59,6 +88,18 @@
       {
         "command": "side-quest.reader.toggleDisguise",
         "title": "Side Quest: 切换伪装（Boss Key）"
+      },
+      {
+        "command": "side-quest.market.show",
+        "title": "Side Quest: 打开操盘手"
+      },
+      {
+        "command": "side-quest.market.refresh",
+        "title": "Side Quest: 刷新行情"
+      },
+      {
+        "command": "side-quest.market.nextSymbol",
+        "title": "Side Quest: 切换下一个标的"
       }
     ]
   },

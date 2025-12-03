@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { SideQuestViewProvider } from './SideQuestViewProvider';
 import { logger } from './utils/logger';
+import { MarketService } from './services/marketService';
 
 /**
  * 插件激活时调用
@@ -11,7 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
 	logger.info('Side Quest is now active!');
 
 	// 注册 Webview 视图提供者
-	const provider = new SideQuestViewProvider(context.extensionUri);
+	const provider = new SideQuestViewProvider(context.extensionUri, context);
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(
 			SideQuestViewProvider.viewType,
@@ -19,12 +20,33 @@ export function activate(context: vscode.ExtensionContext) {
 		)
 	);
 
+	// 注册操盘手服务
+	const marketService = new MarketService(context, provider);
+	context.subscriptions.push(marketService);
+
 	// 注册 Hello World 命令
 	const helloCommand = vscode.commands.registerCommand('side-quest.helloWorld', () => {
 		logger.debug('Hello World command executed');
 		vscode.window.showInformationMessage('Hello from Side Quest!');
 	});
 	context.subscriptions.push(helloCommand);
+
+	// 操盘手相关命令
+	context.subscriptions.push(
+		vscode.commands.registerCommand('side-quest.market.show', () => {
+			marketService.showMarketView();
+		})
+	);
+	context.subscriptions.push(
+		vscode.commands.registerCommand('side-quest.market.refresh', () => {
+			marketService.refresh();
+		})
+	);
+	context.subscriptions.push(
+		vscode.commands.registerCommand('side-quest.market.nextSymbol', () => {
+			marketService.nextSymbol();
+		})
+	);
 }
 
 /**

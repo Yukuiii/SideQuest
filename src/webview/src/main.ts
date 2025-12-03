@@ -7,9 +7,12 @@ import App from "./App.vue";
 import router from "./router";
 import { showToast } from "./utils/toast";
 import { setupThemeBridge } from "./core/theme";
+import { setupMarketBridge } from "./core/market/marketManager";
 
 // 初始化主题同步（请求初始主题 + 监听更新）
 setupThemeBridge();
+// 初始化操盘手消息通道
+setupMarketBridge();
 
 const app = createApp(App);
 app.use(router);
@@ -25,4 +28,13 @@ window.addEventListener("unhandledrejection", (event) => {
         ? "请求超时，请检查网络或重试"
         : reason?.message || "请求失败，请稍后重试";
   showToast(message);
+});
+
+// Webview 全局消息：路由导航
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (!message || typeof message !== "object") return;
+  if (message.command === "navigate" && message.payload?.route) {
+    router.push(message.payload.route);
+  }
 });
