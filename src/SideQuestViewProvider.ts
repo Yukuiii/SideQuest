@@ -9,12 +9,23 @@ import { httpService, type HttpRequestOptions } from './services/httpService';
 export class SideQuestViewProvider implements vscode.WebviewViewProvider {
   /** 视图类型标识符，与 package.json 中的配置对应 */
   public static readonly viewType = 'side-quest.mainView';
+  /** 当前 Webview 视图实例 */
+  private _view?: vscode.WebviewView;
+  /** 主题变化监听句柄 */
+  private _themeChangeListener?: vscode.Disposable;
+  /** 配置变化监听句柄 */
+  private _configurationListener?: vscode.Disposable;
+  /** 待导航路由（视图未就绪时缓存） */
+  private _pendingRoute?: string;
+  /** 缓存的行情数据 */
+  private _lastQuotes: unknown[] = [];
+  private _lastUpdate: number | null = null;
 
   /**
    * 构造函数
    * @param _extensionUri - 扩展的根目录 URI，用于加载本地资源
    */
-  constructor(private readonly _extensionUri: vscode.Uri) {}
+  constructor(private readonly _extensionUri: vscode.Uri, private readonly _context?: vscode.ExtensionContext) {}
 
   /**
    * 解析 Webview 视图
@@ -28,6 +39,8 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
+    this._view = webviewView;
+
     // 配置 Webview 选项
     webviewView.webview.options = {
       enableScripts: true,
@@ -42,24 +55,74 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     // 处理来自 Webview 的消息
     webviewView.webview.onDidReceiveMessage(async (message) => {
       logger.debug('Received message from webview', message);
-      const { command, requestId, data } = message;
+      const { command, requestId } = message;
+      const payload = message.payload ?? message.data;
 
       switch (command) {
         case 'selectMode':
-          vscode.window.showInformationMessage(`功能开发中：${data.mode}`);
+          vscode.window.showInformationMessage(`功能开发中：${payload.mode}`);
+          break;
+
+        case 'market.refresh':
+          // 交给 MarketService 处理真实刷新
+          void vscode.commands.executeCommand('side-quest.market.refresh');
+          break;
+
+        case 'market.addWatch':
+          logger.info('Receive watch add request', payload);
+
+          void vscode.commands.executeCommand('side-quest.market.addWatch', payload);
+          break;
+
+        case 'market.removeWatch':
+          logger.info('Receive watch remove request', payload);
+          void vscode.commands.executeCommand('side-quest.market.removeWatch', payload?.symbol);
+          break;
+
+        case 'requestTheme':
+          this._postThemeUpdate();
           break;
 
         case 'httpRequest':
           // 代理 HTTP 请求
-          await this._handleHttpRequest(webviewView.webview, requestId, data);
+          await this._handleHttpRequest(webviewView.webview, requestId, payload);
           break;
 
         case 'openUrl':
           // 使用 Simple Browser 在编辑器内打开链接
-          await this._openUrlInSimpleBrowser(data.url);
+          await this._openUrlInSimpleBrowser(payload.url);
           break;
       }
     });
+
+    this._postInitMessage();
+
+    this._themeChangeListener?.dispose();
+    this._themeChangeListener = vscode.window.onDidChangeActiveColorTheme((colorTheme) => {
+      logger.debug('Active color theme changed', colorTheme.kind);
+      this._postThemeUpdate(colorTheme);
+    });
+
+    this._configurationListener?.dispose();
+    this._configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('side-quest.reader.lockTheme')) {
+        logger.debug('Lock theme configuration changed');
+        this._postThemeUpdate();
+      }
+    });
+
+    webviewView.onDidDispose(() => {
+      this._themeChangeListener?.dispose();
+      this._configurationListener?.dispose();
+      this._themeChangeListener = undefined;
+      this._configurationListener = undefined;
+      this._view = undefined;
+    });
+
+    if (this._pendingRoute) {
+      this.navigateTo(this._pendingRoute);
+      this._pendingRoute = undefined;
+    }
   }
 
   /**
@@ -87,45 +150,184 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     requestId: string,
     options: HttpRequestOptions
   ): Promise<void> {
-    try {
-      logger.debug(`Proxy HTTP request: ${options.method || 'GET'} ${options.url}`);
+    if (!requestId) {
+      logger.warn('Missing requestId for httpRequest');
+      return;
+    }
 
-      const response = await httpService.get(options.url, {
-        headers: options.headers,
-        charset: options.charset,
-        timeout: options.timeout,
+    if (!options || !options.url) {
+      webview.postMessage({
+        command: 'response',
+        requestId,
+        payload: {
+          success: false,
+          error: {
+            message: '无效的请求参数',
+            code: 'BAD_REQUEST',
+          },
+        },
       });
+      return;
+    }
 
-      // 如果是 POST 请求
-      if (options.method === 'POST') {
-        const postResponse = await httpService.post(options.url, options.body, {
-          headers: options.headers,
-          charset: options.charset,
-          timeout: options.timeout,
-        });
-        webview.postMessage({
-          command: 'httpResponse',
-          requestId,
-          response: postResponse,
-        });
-        return;
-      }
+    try {
+      const method = (options.method || 'GET').toUpperCase();
+      logger.debug(`Proxy HTTP request: ${method} ${options.url}`);
+
+      const response =
+        method === 'POST'
+          ? await httpService.post(options.url, options.body, {
+              headers: options.headers,
+              charset: options.charset,
+              timeout: options.timeout,
+            })
+          : await httpService.get(options.url, {
+              headers: options.headers,
+              charset: options.charset,
+              timeout: options.timeout,
+            });
 
       webview.postMessage({
-        command: 'httpResponse',
+        command: 'response',
         requestId,
-        response,
+        payload: {
+          success: true,
+          data: response,
+        },
       });
     } catch (error) {
       logger.error('HTTP proxy error:', error);
       webview.postMessage({
-        command: 'httpResponse',
+        command: 'response',
         requestId,
-        response: {
+        payload: {
           success: false,
-          error: error instanceof Error ? error.message : '未知错误',
+          error: {
+            message: error instanceof Error ? error.message : '未知错误',
+            code: 'HTTP_PROXY_ERROR',
+          },
         },
       });
+    }
+  }
+
+  /**
+   * 发送初始化消息，包含主题与偏好
+   */
+  private _postInitMessage(): void {
+    if (!this._view) {
+      return;
+    }
+
+    this._view.webview.postMessage({
+      command: 'init',
+      payload: {
+        theme: this._getThemeInfo(),
+        prefs: this._getReaderPreferences(),
+      },
+    });
+
+    // 初始化时推送已缓存的行情数据
+    this.postMarketUpdate(this._lastQuotes, this._lastUpdate ?? Date.now());
+  }
+
+  /**
+   * 发送主题更新消息
+   * @param colorTheme VS Code 当前主题
+   */
+  private _postThemeUpdate(colorTheme: vscode.ColorTheme = vscode.window.activeColorTheme): void {
+    if (!this._view) {
+      return;
+    }
+
+    this._view.webview.postMessage({
+      command: 'updateTheme',
+      payload: {
+        theme: this._getThemeInfo(colorTheme),
+        prefs: this._getReaderPreferences(),
+      },
+    });
+  }
+
+  /**
+   * 向 webview 发送行情占位数据（迭代 1 占位）
+   */
+  public postMarketUpdate(quotes: unknown[], lastUpdate: number): void {
+    this._lastQuotes = quotes;
+    this._lastUpdate = lastUpdate;
+    if (this._view) {
+      logger.debug('Post market update to webview', {
+        count: Array.isArray(quotes) ? quotes.length : 0,
+        lastUpdate,
+      });
+      this._view.webview.postMessage({
+        command: 'market.update',
+        payload: {
+          quotes,
+          lastUpdate,
+        },
+      });
+    }
+  }
+
+  /**
+   * 导航到指定路由
+   */
+  public navigateTo(route: string): void {
+    if (this._view) {
+      this._view.webview.postMessage({
+        command: 'navigate',
+        payload: { route },
+      });
+    } else {
+      this._pendingRoute = route;
+    }
+  }
+
+  /**
+   * 导航到操盘手路由
+   */
+  public navigateMarket(): void {
+    this.navigateTo('/market');
+  }
+
+  /**
+   * 获取当前主题信息
+   * @param colorTheme VS Code 主题
+   * @returns 主题描述
+   */
+  private _getThemeInfo(colorTheme: vscode.ColorTheme = vscode.window.activeColorTheme) {
+    return {
+      kind: this._mapThemeKind(colorTheme.kind),
+      themeName: colorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'high-contrast' : colorTheme.kind === vscode.ColorThemeKind.HighContrastLight ? 'high-contrast-light' : 'default',
+    };
+  }
+
+  /**
+   * 获取阅读者主题相关偏好
+   */
+  private _getReaderPreferences(): { lockTheme: 'auto' | 'light' | 'dark' } {
+    const config = vscode.workspace.getConfiguration('side-quest');
+    const lockTheme = config.get<'auto' | 'light' | 'dark'>('reader.lockTheme', 'auto');
+    return { lockTheme };
+  }
+
+  /**
+   * 映射 VS Code 主题枚举到 Webview 可用的字符串
+   * @param kind VS Code 主题类型
+   */
+  private _mapThemeKind(kind: vscode.ColorThemeKind): 'light' | 'dark' | 'highContrast' | 'highContrastLight' {
+    switch (kind) {
+      case vscode.ColorThemeKind.Light:
+        return 'light';
+      case vscode.ColorThemeKind.Dark:
+        return 'dark';
+      case vscode.ColorThemeKind.HighContrast:
+        return 'highContrast';
+      case vscode.ColorThemeKind.HighContrastLight:
+        return 'highContrastLight';
+      default:
+        return 'dark';
     }
   }
 

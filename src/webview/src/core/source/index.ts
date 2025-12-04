@@ -35,7 +35,14 @@ export type { ImportResult, SourceFormat } from "./sourceManager";
 export { SourceManager, sourceManager, detectSourceFormat } from "./sourceManager";
 
 // 书籍服务
-export { searchBooks, getChapters, getContent } from "./bookService";
+export {
+  searchBooks,
+  getChapters,
+  getContent,
+  preloadChapter,
+  parseSearchResults,
+} from "./bookService";
+export { generateBookId } from "./bookId";
 
 // 内置书源
 export {

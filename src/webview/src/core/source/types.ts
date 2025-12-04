@@ -42,6 +42,8 @@ export interface UnifiedSource {
  * 书籍信息
  */
 export interface BookInfo {
+  /** 书籍唯一 ID（基于书名+作者生成的哈希） */
+  bookId: string;
   /** 书名 */
   name: string;
   /** 作者 */
@@ -60,6 +62,8 @@ export interface BookInfo {
   bookUrl: string;
   /** 来源书源 ID */
   sourceId: string;
+  /** 备用书源列表 */
+  alternativeSources?: { sourceId: string; sourceName: string; bookUrl: string }[];
 }
 
 /**

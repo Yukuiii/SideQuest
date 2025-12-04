@@ -2,36 +2,69 @@
 
 /* shadcn-vue CSS 变量 - 适配 VS Code 主题 */
 :root {
-  --background: var(--vscode-sideBar-background);
-  --foreground: var(--vscode-foreground);
+  /* 自定义主题变量，默认回落 VS Code 主题色，JS 会覆盖 --sq-* */
+  --sq-background: var(--vscode-sideBar-background);
+  --sq-foreground: var(--vscode-foreground);
 
-  --muted: var(--vscode-input-background);
-  --muted-foreground: var(--vscode-descriptionForeground);
+  --sq-muted: var(--vscode-input-background);
+  --sq-muted-foreground: var(--vscode-descriptionForeground);
 
-  --popover: var(--vscode-editorWidget-background);
-  --popover-foreground: var(--vscode-foreground);
+  --sq-popover: var(--vscode-editorWidget-background);
+  --sq-popover-foreground: var(--vscode-foreground);
 
-  --card: var(--vscode-editor-background);
-  --card-foreground: var(--vscode-foreground);
+  --sq-card: var(--vscode-editor-background);
+  --sq-card-foreground: var(--vscode-foreground);
 
-  --border: var(--vscode-panel-border);
-  --input: var(--vscode-input-border);
+  --sq-border: var(--vscode-panel-border);
+  --sq-input: var(--vscode-input-border);
 
-  --primary: var(--vscode-button-background);
-  --primary-foreground: var(--vscode-button-foreground);
+  --sq-primary: var(--vscode-button-background);
+  --sq-primary-foreground: var(--vscode-button-foreground);
 
-  --secondary: var(--vscode-button-secondaryBackground);
-  --secondary-foreground: var(--vscode-button-secondaryForeground);
+  --sq-secondary: var(--vscode-button-secondaryBackground);
+  --sq-secondary-foreground: var(--vscode-button-secondaryForeground);
 
-  --accent: var(--vscode-list-hoverBackground);
-  --accent-foreground: var(--vscode-foreground);
+  --sq-accent: var(--vscode-list-hoverBackground);
+  --sq-accent-foreground: var(--vscode-foreground);
 
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
+  --sq-destructive: #dc2626;
+  --sq-destructive-foreground: #ffffff;
 
-  --ring: var(--vscode-focusBorder);
+  --sq-ring: var(--vscode-focusBorder);
 
-  --radius: 0.375rem;
+  --sq-radius: 0.375rem;
+
+  /* Tailwind/shadcn 预期的变量映射 */
+  --background: var(--sq-background);
+  --foreground: var(--sq-foreground);
+
+  --muted: var(--sq-muted);
+  --muted-foreground: var(--sq-muted-foreground);
+
+  --popover: var(--sq-popover);
+  --popover-foreground: var(--sq-popover-foreground);
+
+  --card: var(--sq-card);
+  --card-foreground: var(--sq-card-foreground);
+
+  --border: var(--sq-border);
+  --input: var(--sq-input);
+
+  --primary: var(--sq-primary);
+  --primary-foreground: var(--sq-primary-foreground);
+
+  --secondary: var(--sq-secondary);
+  --secondary-foreground: var(--sq-secondary-foreground);
+
+  --accent: var(--sq-accent);
+  --accent-foreground: var(--sq-accent-foreground);
+
+  --destructive: var(--sq-destructive);
+  --destructive-foreground: var(--sq-destructive-foreground);
+
+  --ring: var(--sq-ring);
+
+  --radius: var(--sq-radius);
 }
 
 @theme inline {
@@ -58,4 +91,14 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--sq-background);
+  color: var(--sq-foreground);
 }

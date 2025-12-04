@@ -13,7 +13,7 @@
 :root {
   font-family: var(--vscode-font-family, system-ui, sans-serif);
   font-size: var(--vscode-font-size, 13px);
-  color: var(--vscode-foreground);
-  background: var(--vscode-sideBar-background);
+  color: var(--sq-foreground);
+  background: var(--sq-background);
 }
 </style>
