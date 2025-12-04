@@ -170,13 +170,19 @@ const sortedQuotes = computed(() => {
         <div
           v-for="quote in sortedQuotes"
           :key="quote.symbol"
-          class="flex items-center justify-between rounded border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-3 py-2 text-sm"
+          class="flex items-center justify-between rounded border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-3 py-2 text-sm hover:bg-[var(--vscode-list-hoverBackground)] cursor-pointer transition-colors"
         >
-          <div class="flex flex-col">
+          <div
+            class="flex flex-col flex-1"
+            @click="router.push(`/market/detail/${quote.symbol}`)"
+          >
             <span class="font-medium">{{ quote.displayName || quote.symbol }}</span>
             <span class="text-[var(--vscode-descriptionForeground)] text-xs">{{ quote.symbol }}</span>
           </div>
-          <div class="text-right">
+          <div
+            class="text-right"
+            @click="router.push(`/market/detail/${quote.symbol}`)"
+          >
             <div class="font-semibold">{{ quote.price?.toFixed ? quote.price.toFixed(2) : quote.price }}</div>
             <div
               class="text-xs"
@@ -189,7 +195,7 @@ const sortedQuotes = computed(() => {
           <button
             class="ml-3 rounded bg-transparent px-2 py-1 text-xs text-[var(--vscode-descriptionForeground)] hover:bg-[var(--vscode-toolbar-hoverBackground)]"
             title="移除自选"
-            @click="removeWatch(quote.symbol)"
+            @click.stop="removeWatch(quote.symbol)"
           >
             删除
           </button>
