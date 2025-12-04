@@ -103,10 +103,6 @@ defineExpose({ refresh });
 
 <template>
   <div class="flex h-full flex-col">
-    <div class="border-b border-[var(--vscode-panel-border)] p-3">
-      <h2 class="text-lg font-medium">📚 书架</h2>
-    </div>
-
     <div class="flex border-b border-[var(--vscode-panel-border)]">
       <button
         class="flex-1 py-2 text-sm"
