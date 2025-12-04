@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/MarketView.vue"),
     meta: { title: "操盘手" },
   },
+  {
+    path: "/market/detail/:symbol",
+    name: "MarketDetail",
+    component: () => import("../views/MarketDetailView.vue"),
+    meta: { title: "K 线详情" },
+  },
 ];
 
 /**

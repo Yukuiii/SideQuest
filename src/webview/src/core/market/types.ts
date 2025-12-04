@@ -48,3 +48,17 @@ export interface DisplayConfig {
   showAbsolute: boolean;
   decimalPlaces: number;
 }
+
+// K 线数据类型
+export interface KLineData {
+  time: number;      // 时间戳 (秒)
+  open: number;      // 开盘价
+  high: number;      // 最高价
+  low: number;       // 最低价
+  close: number;     // 收盘价
+  volume?: number;   // 成交量
+}
+
+export type KLineInterval = "1m" | "5m" | "15m" | "1h" | "1d" | "1wk" | "1mo";
+export type KLineRange = "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "5y" | "max";
+export type ChartType = "candlestick" | "area" | "line";
