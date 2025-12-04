@@ -50,8 +50,29 @@ export class SourceManager {
    * 创建书源管理器实例
    */
   constructor() {
+    this.loadLocalSource();
     this.loadBuiltinSources();
     this.loadFromStorage();
+  }
+
+  /**
+   * 加载本地书源（虚拟书源）
+   */
+  private loadLocalSource(): void {
+    const localSource: UnifiedSource = {
+      id: "local",
+      name: "本地书籍",
+      url: "local://",
+      type: 0, // 小说类型
+      enabled: true,
+      raw: {
+        id: "local",
+        name: "本地书籍",
+        host: "local://",
+        contentType: 1, // 小说类型
+      },
+    };
+    this.sources.set("local", localSource);
   }
 
   /**

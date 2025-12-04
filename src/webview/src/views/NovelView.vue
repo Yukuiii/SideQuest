@@ -12,6 +12,7 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import ReaderControls from "../components/ReaderControls.vue";
 import DisguiseView from "../components/DisguiseView.vue";
 import ShelfView from "../components/ShelfView.vue";
+import LocalImport from "../components/LocalImport.vue";
 import type { BookInfo, ChapterInfo } from "../core/source";
 import type { ShelfBook } from "../core/shelf/types";
 import { sourceManager, getChapters, getContent, preloadChapter } from "../core/source";
@@ -738,6 +739,15 @@ function quickToggleFontSize() {
   const nextIndex = (prefs.value.fontSizeIndex + 1) % FONT_SIZES.length;
   prefs.value = { ...prefs.value, fontSizeIndex: nextIndex };
 }
+
+/**
+ * 处理本地书籍导入完成
+ */
+function handleLocalImported() {
+  // 刷新书架视图
+  shelfViewRef.value?.refresh();
+  showToast("导入成功");
+}
 </script>
 
 <template>
@@ -906,7 +916,16 @@ function quickToggleFontSize() {
       <div class="flex flex-1 flex-col overflow-hidden p-4">
         <!-- 书架 -->
         <div v-if="activeTab === 'shelf'" class="flex-1 overflow-hidden">
-          <ShelfView ref="shelfViewRef" @continue-reading="handleContinueReading" />
+          <div class="flex h-full flex-col">
+            <div class="flex-1 overflow-hidden">
+              <ShelfView ref="shelfViewRef" @continue-reading="handleContinueReading" />
+            </div>
+            
+            <!-- 本地导入区域 -->
+            <div class="border-t border-[var(--vscode-panel-border)] p-4">
+              <LocalImport @imported="handleLocalImported" />
+            </div>
+          </div>
         </div>
 
         <!-- 搜索 -->

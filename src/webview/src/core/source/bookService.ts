@@ -10,6 +10,7 @@ import type { EsoSource } from "./esoParser";
 import { parseEsoRule, executeEsoRule, parseEsoUrlRule } from "./esoParser";
 import { getCachedContent, cacheContent } from "../cache/cacheManager";
 import { generateBookId } from "./bookId";
+import { getLocalChapters, getLocalContent } from "../local/localSource";
 
 /**
  * 搜索书籍
@@ -72,6 +73,10 @@ async function searchBooksEso(
  * @returns 章节列表
  */
 export async function getChapters(source: UnifiedSource, book: BookInfo): Promise<ChapterInfo[]> {
+  // 本地书源特殊处理
+  if (source.id === "local") {
+    return getLocalChapters(book.bookUrl);
+  }
   return getChaptersEso(source.raw, book);
 }
 
@@ -159,6 +164,10 @@ async function getChaptersEso(source: EsoSource, book: BookInfo): Promise<Chapte
  * @returns 章节内容（HTML 或纯文本）
  */
 export async function getContent(source: UnifiedSource, chapter: ChapterInfo): Promise<string> {
+  // 本地书源特殊处理
+  if (chapter.url.startsWith("local:")) {
+    return getLocalContent(chapter.url);
+  }
   return getContentEso(source.raw, chapter);
 }
 
@@ -168,6 +177,11 @@ export async function getContent(source: UnifiedSource, chapter: ChapterInfo): P
  * @param chapter 章节信息
  */
 export async function preloadChapter(source: UnifiedSource, chapter: ChapterInfo): Promise<void> {
+  // 本地书籍不需要预加载，内容已经在 localStorage 中
+  if (chapter.url.startsWith("local:")) {
+    return;
+  }
+  
   try {
     console.log("[preloadChapter] 开始预加载:", chapter.name);
     await getContentEso(source.raw, chapter);

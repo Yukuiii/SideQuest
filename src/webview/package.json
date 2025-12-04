@@ -13,6 +13,7 @@
     "@vueuse/core": "^14.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "jszip": "^3.10.1",
     "lucide-vue-next": "^0.555.0",
     "pako": "^2.1.0",
     "radix-vue": "^1.9.17",
@@ -23,6 +24,7 @@
     "vue-router": "^4.6.3"
   },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/node": "^24.10.1",
     "@types/pako": "^2.0.4",
     "@vitejs/plugin-vue": "^6.0.1",
