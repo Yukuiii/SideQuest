@@ -117,7 +117,7 @@ const sortedQuotes = computed(() => {
         <input
           v-model="formSymbol"
           class="flex-1 rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] px-2 py-1 text-sm text-[var(--vscode-input-foreground)]"
-          placeholder="标的代码（如 AAPL 或 BTCUSDT）"
+          placeholder="标的代码（AAPL/BTC/^GSPC）"
         />
         
         <input
@@ -140,8 +140,7 @@ const sortedQuotes = computed(() => {
           class="rounded border border-[var(--vscode-panel-border)] bg-[var(--vscode-input-background)] text-xs text-[var(--vscode-input-foreground)] px-2 py-1"
         >
           <option value="yahoo">Yahoo</option>
-          <option value="binance">Binance</option>
-          <option value="sina">Sina</option>
+      
         </select>
         <div class="flex gap-2 ml-auto">
           <button
