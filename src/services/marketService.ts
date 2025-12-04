@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { SideQuestViewProvider } from '../SideQuestViewProvider';
 import { httpService } from './httpService';
 import { logger } from '../utils/logger';
+import { log } from 'console';
 
 interface WatchItemConfig {
 	type: 'stock' | 'crypto' | 'index';
@@ -121,7 +122,7 @@ class StatusBarController {
 }
 
 /**
- * 数据管理框架（迭代 1 占位，后续填充刷新逻辑）
+ * 数据管理框架
  */
 class DataManager {
 	private refreshTimer: NodeJS.Timeout | null = null;
@@ -199,7 +200,6 @@ class DataManager {
 				this._onError?.('使用缓存数据，可能已过期');
 				return;
 			}
-
 			this._onError?.('未获取到行情数据');
 		} catch (err) {
 			console.error('[Market] fetchQuotes failed', err);
@@ -216,26 +216,49 @@ class DataManager {
 	}
 
 	private async _fetchYahoo(items: WatchItemConfig[]): Promise<Quote[]> {
-		const symbols = items.map((i) => i.symbol).join(',');
-		const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`;
 		try {
-			logger.debug('[Market] yahoo request', { url });
-			const res = await httpService.get(url, { timeout: 8000 });
-			const json = typeof res === 'string' ? JSON.parse(res) : res;
-			const results: any[] = json?.quoteResponse?.result || [];
-			logger.debug('[Market] yahoo response count', { count: results.length });
-			return results.map((r) => {
-				const base = items.find((i) => i.symbol.toLowerCase() === String(r.symbol || '').toLowerCase());
+			const quotes = await Promise.all(items.map(async (item) => {
+				let symbol = item.symbol.toUpperCase();
+
+				// 自动为加密货币添加 -USD 后缀
+				if (item.type === 'crypto' && !symbol.includes('-') && !symbol.includes('/')) {
+					symbol = `${symbol}-USD`;
+				}
+				logger.info('[Market] yahoo request1', { symbol: item.symbol, type: item.type, actualSymbol: symbol});
+				const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
+				logger.info('[Market] yahoo request', { symbol: item.symbol, actualSymbol: symbol, url });
+				const res = await httpService.get(url, { timeout: 8000 });
+
+				if (!res.success || !res.data) {
+					logger.warn('[Market] yahoo request failed', { symbol: item.symbol, error: res.error });
+					return null;
+				}
+
+				const json = JSON.parse(res.data);
+				const chart = json?.chart?.result?.[0];
+				const meta = chart?.meta;
+				if (!meta) {
+					logger.warn('[Market] yahoo no meta', { symbol: item.symbol, chartKeys: chart ? Object.keys(chart) : [] });
+					return null;
+				}
+				const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose ?? chart?.indicators?.quote?.[0]?.close?.slice(-1)?.[0]) || 0;
+				const prev = Number(meta.previousClose ?? meta.chartPreviousClose ?? price) || price;
+				const change = price - prev;
+				const changePercent = prev ? (change / prev) * 100 : 0;
+				const ts = Number(meta.regularMarketTime) ? Number(meta.regularMarketTime) * 1000 : Date.now();
 				return {
-					symbol: String(r.symbol || base?.symbol || ''),
-					displayName: base?.displayName || r.shortName || r.longName,
-					price: Number(r.regularMarketPrice) || 0,
-					change: Number(r.regularMarketChange) || 0,
-					changePercent: Number(r.regularMarketChangePercent) || 0,
-					timestamp: Number(r.regularMarketTime) ? Number(r.regularMarketTime) * 1000 : Date.now(),
-					sourceId: base?.sourceId || 'yahoo',
+					symbol: String(meta.symbol || item.symbol),
+					displayName: item.displayName || meta.shortName || meta.longName,
+					price,
+					change,
+					changePercent,
+					timestamp: ts,
+					sourceId: item.sourceId || 'yahoo',
 				} as Quote;
-			}).filter((q) => q.symbol);
+			}));
+			const filtered = quotes.filter((q): q is Quote => Boolean(q && q.symbol));
+			logger.info('[Market] yahoo response parsed', { count: filtered.length });
+			return filtered;
 		} catch (err) {
 			console.error('[Market] Yahoo fetch failed, using cache', err);
 			logger.error('[Market] Yahoo fetch failed', err);
@@ -283,6 +306,8 @@ export class MarketService {
 		void vscode.commands.executeCommand('workbench.view.extension.side-quest');
 		// 通知 webview 导航到操盘手
 		this._provider?.navigateMarket();
+		// 主动获取一次数据
+		void this._data.fetchQuotes();
 	}
 
 	public refresh(): void {
