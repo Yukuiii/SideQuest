@@ -168,4 +168,43 @@ export function httpPost(
   return httpRequest({ ...options, url, method: "POST", body });
 }
 
+/** 文件信息 */
+export interface LocalFileInfo {
+  path: string;
+  name: string;
+}
+
+/**
+ * 选择本地文件（通过 VS Code 文件选择对话框）
+ * @param filters 文件过滤器
+ * @returns 选中的文件列表
+ */
+export async function selectLocalFiles(
+  filters?: Record<string, string[]>
+): Promise<LocalFileInfo[]> {
+  const result = await requestExtension<{ files: LocalFileInfo[] }>(
+    "selectLocalFile",
+    { filters }
+  );
+  return result.files;
+}
+
+/**
+ * 读取本地文件内容
+ * @param path 文件路径
+ * @param encoding 编码方式
+ * @returns 文件内容
+ */
+export async function readLocalFile(
+  path: string,
+  encoding: "utf8" | "base64" = "utf8"
+): Promise<string> {
+  const result = await requestExtension<{ content: string }>(
+    "readLocalFile",
+    { path, encoding },
+    60000 // 大文件可能需要更长时间
+  );
+  return result.content;
+}
+
 export { vscode };

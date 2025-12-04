@@ -92,6 +92,16 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
           // 使用 Simple Browser 在编辑器内打开链接
           await this._openUrlInSimpleBrowser(payload.url);
           break;
+
+        case 'selectLocalFile':
+          // 选择本地文件
+          await this._handleSelectLocalFile(webviewView.webview, requestId, payload);
+          break;
+
+        case 'readLocalFile':
+          // 读取本地文件
+          await this._handleReadLocalFile(webviewView.webview, requestId, payload);
+          break;
       }
     });
 
@@ -122,6 +132,103 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
     if (this._pendingRoute) {
       this.navigateTo(this._pendingRoute);
       this._pendingRoute = undefined;
+    }
+  }
+
+  /**
+   * 处理选择本地文件
+   */
+  private async _handleSelectLocalFile(
+    webview: vscode.Webview,
+    requestId: string,
+    options: { filters?: Record<string, string[]> }
+  ): Promise<void> {
+    try {
+      const filters: Record<string, string[]> = options?.filters || {
+        '小说文件': ['txt', 'epub'],
+        '所有文件': ['*']
+      };
+
+      const uris = await vscode.window.showOpenDialog({
+        canSelectMany: true,
+        canSelectFiles: true,
+        canSelectFolders: false,
+        filters,
+        title: '选择小说文件'
+      });
+
+      if (!uris || uris.length === 0) {
+        webview.postMessage({
+          command: 'response',
+          requestId,
+          payload: { success: true, data: { files: [] } }
+        });
+        return;
+      }
+
+      const files = uris.map(uri => ({
+        path: uri.fsPath,
+        name: uri.fsPath.split(/[/\\]/).pop() || ''
+      }));
+
+      webview.postMessage({
+        command: 'response',
+        requestId,
+        payload: { success: true, data: { files } }
+      });
+    } catch (error) {
+      logger.error('Select file error:', error);
+      webview.postMessage({
+        command: 'response',
+        requestId,
+        payload: {
+          success: false,
+          error: { message: error instanceof Error ? error.message : '选择文件失败' }
+        }
+      });
+    }
+  }
+
+  /**
+   * 处理读取本地文件
+   */
+  private async _handleReadLocalFile(
+    webview: vscode.Webview,
+    requestId: string,
+    options: { path: string; encoding?: 'utf8' | 'base64' }
+  ): Promise<void> {
+    try {
+      if (!options?.path) {
+        throw new Error('文件路径不能为空');
+      }
+
+      const uri = vscode.Uri.file(options.path);
+      const data = await vscode.workspace.fs.readFile(uri);
+      
+      let content: string;
+      if (options.encoding === 'base64') {
+        // 返回 base64 编码（用于二进制文件如 EPUB）
+        content = Buffer.from(data).toString('base64');
+      } else {
+        // 默认返回 UTF-8 文本
+        content = Buffer.from(data).toString('utf8');
+      }
+
+      webview.postMessage({
+        command: 'response',
+        requestId,
+        payload: { success: true, data: { content } }
+      });
+    } catch (error) {
+      logger.error('Read file error:', error);
+      webview.postMessage({
+        command: 'response',
+        requestId,
+        payload: {
+          success: false,
+          error: { message: error instanceof Error ? error.message : '读取文件失败' }
+        }
+      });
     }
   }
 

@@ -4,7 +4,7 @@
  */
 
 import type { UnifiedSource, ChapterInfo } from "../source";
-import { getLocalBook, getAllLocalBooks } from "./localManager";
+import { getLocalBookAsync } from "./localManager";
 
 /**
  * 创建本地书源
@@ -26,17 +26,14 @@ export function createLocalSource(): UnifiedSource {
 }
 
 /**
- * 获取本地书籍的章节列表
+ * 获取本地书籍的章节列表（异步，支持自动重新加载）
  */
-export function getLocalChapters(bookUrl: string): ChapterInfo[] {
+export async function getLocalChapters(bookUrl: string): Promise<ChapterInfo[]> {
   console.log("[getLocalChapters] 查找书籍:", bookUrl);
-  const book = getLocalBook(bookUrl);
+  const book = await getLocalBookAsync(bookUrl);
   if (!book) {
     console.error("[getLocalChapters] 本地书籍不存在:", bookUrl);
-    // 打印所有本地书籍的 ID 以便调试
-    const allBooks = getAllLocalBooks();
-    console.log("[getLocalChapters] 现有本地书籍:", allBooks.map((b) => b.id));
-    throw new Error("本地书籍不存在（可能需要重新导入）");
+    throw new Error("本地书籍不存在（文件可能已被移动或删除）");
   }
 
   return book.chapters.map((chapter) => ({
@@ -46,9 +43,9 @@ export function getLocalChapters(bookUrl: string): ChapterInfo[] {
 }
 
 /**
- * 获取本地书籍的章节内容
+ * 获取本地书籍的章节内容（异步，支持自动重新加载）
  */
-export function getLocalContent(chapterUrl: string): string {
+export async function getLocalContent(chapterUrl: string): Promise<string> {
   // 解析章节 URL: bookId#chapterIndex
   const parts = chapterUrl.split("#");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -63,10 +60,10 @@ export function getLocalContent(chapterUrl: string): string {
   }
 
   console.log("[getLocalContent] 查找书籍:", bookId);
-  const book = getLocalBook(bookId);
+  const book = await getLocalBookAsync(bookId);
   if (!book) {
     console.error("[getLocalContent] 本地书籍不存在:", bookId);
-    throw new Error("本地书籍不存在");
+    throw new Error("本地书籍不存在（文件可能已被移动或删除）");
   }
 
   const chapter = book.chapters[chapterIndex];
