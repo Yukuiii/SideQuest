@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed, ref } from "vue";
+import { onMounted, computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { marketState, requestRefresh, setupMarketBridge } from "../core/market/marketManager";
 import { postMessage } from "../utils/vscode";
@@ -11,6 +11,7 @@ const formSymbol = ref("");
 const formDisplayName = ref("");
 const formType = ref<"stock" | "crypto" | "index">("stock");
 const formSourceId = ref("yahoo");
+const loading = ref(false);
 
 function goBack() {
   router.push("/");
@@ -37,15 +38,24 @@ function submitAddWatch() {
 }
 
 function removeWatch(symbol: string) {
-  const ok = window.confirm(`确定删除 ${symbol} 吗？`);
-  if (ok) {
-    postMessage("market.removeWatch", { symbol });
-  }
+  // webview 沙箱模式不支持 confirm,直接删除
+  postMessage("market.removeWatch", { symbol });
 }
+
+function handleRefresh() {
+  loading.value = true;
+  requestRefresh();
+}
+
+// 监听 marketState 的变化，数据更新后清除 loading
+watch(() => marketState.lastUpdate, () => {
+  loading.value = false;
+});
 
 onMounted(() => {
   setupMarketBridge();
   // 主动请求一次数据
+  loading.value = true;
   requestRefresh();
 });
 
@@ -65,7 +75,7 @@ const sortedQuotes = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div class="flex h-full flex-col relative">
     <div class="flex items-center gap-2 border-b border-[var(--vscode-panel-border)] p-3">
       <button
         class="flex h-6 w-6 items-center justify-center rounded border-none bg-transparent text-[var(--vscode-foreground)] hover:bg-[var(--vscode-toolbar-hoverBackground)] cursor-pointer"
@@ -77,7 +87,8 @@ const sortedQuotes = computed(() => {
       <span class="flex-1 font-medium">📈 操盘手</span>
       <button
         class="flex h-6 w-6 items-center justify-center rounded border-none bg-transparent text-[var(--vscode-foreground)] hover:bg-[var(--vscode-toolbar-hoverBackground)] cursor-pointer"
-        @click="requestRefresh"
+        @click="handleRefresh"
+        :disabled="loading"
         title="刷新"
       >
         ↻
@@ -184,6 +195,19 @@ const sortedQuotes = computed(() => {
             删除
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- 加载状态 -->
+    <div
+      v-if="loading"
+      class="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+    >
+      <div class="flex flex-col items-center gap-2">
+        <div
+          class="h-8 w-8 animate-spin rounded-full border-4 border-[var(--vscode-progressBar-background)] border-t-transparent"
+        ></div>
+        <div class="text-sm text-white">加载中...</div>
       </div>
     </div>
   </div>

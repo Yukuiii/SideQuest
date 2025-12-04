@@ -337,8 +337,11 @@ export class MarketService {
 	}
 
 	public async removeWatch(symbol: string): Promise<void> {
+		logger.info('[Market] removeWatch called', { symbol });
 		const current = this._config.getPersistedWatchlist();
+		logger.info('[Market] current watchlist', { count: current.length, items: current.map(w => w.symbol) });
 		const next = current.filter((w) => w.symbol.toLowerCase() !== symbol.toLowerCase());
+		logger.info('[Market] filtered watchlist', { count: next.length, items: next.map(w => w.symbol) });
 		await this._config.setWatchlist(next);
 		await this._data.fetchQuotes();
 	}
