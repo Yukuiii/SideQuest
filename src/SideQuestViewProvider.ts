@@ -17,6 +17,9 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
   private _configurationListener?: vscode.Disposable;
   /** 待导航路由（视图未就绪时缓存） */
   private _pendingRoute?: string;
+  /** 缓存的行情数据 */
+  private _lastQuotes: unknown[] = [];
+  private _lastUpdate: number | null = null;
 
   /**
    * 构造函数
@@ -67,8 +70,13 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
 
         case 'market.addWatch':
           logger.info('Receive watch add request', payload);
-          // TODO: 后续支持在扩展端维护自选并触发刷新
-          void vscode.commands.executeCommand('side-quest.market.refresh');
+
+          void vscode.commands.executeCommand('side-quest.market.addWatch', payload);
+          break;
+
+        case 'market.removeWatch':
+          logger.info('Receive watch remove request', payload);
+          void vscode.commands.executeCommand('side-quest.market.removeWatch', payload?.symbol);
           break;
 
         case 'requestTheme':
@@ -219,7 +227,8 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
       },
     });
 
-    this.postMarketUpdate([], Date.now());
+    // 初始化时推送已缓存的行情数据
+    this.postMarketUpdate(this._lastQuotes, this._lastUpdate ?? Date.now());
   }
 
   /**
@@ -244,16 +253,21 @@ export class SideQuestViewProvider implements vscode.WebviewViewProvider {
    * 向 webview 发送行情占位数据（迭代 1 占位）
    */
   public postMarketUpdate(quotes: unknown[], lastUpdate: number): void {
-    if (!this._view) {
-      return;
-    }
-    this._view.webview.postMessage({
-      command: 'market.update',
-      payload: {
-        quotes,
+    this._lastQuotes = quotes;
+    this._lastUpdate = lastUpdate;
+    if (this._view) {
+      logger.debug('Post market update to webview', {
+        count: Array.isArray(quotes) ? quotes.length : 0,
         lastUpdate,
-      },
-    });
+      });
+      this._view.webview.postMessage({
+        command: 'market.update',
+        payload: {
+          quotes,
+          lastUpdate,
+        },
+      });
+    }
   }
 
   /**

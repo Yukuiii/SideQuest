@@ -9,6 +9,7 @@ export interface WatchItem {
 
 export interface QuoteData {
   symbol: string;
+  displayName?: string;
   price: number;
   change: number;
   changePercent: number;
@@ -16,6 +17,7 @@ export interface QuoteData {
   low?: number;
   volume?: string;
   timestamp: number;
+  sourceId?: string;
 }
 
 export interface MarketDataSource {

@@ -47,6 +47,16 @@ export function activate(context: vscode.ExtensionContext) {
 			marketService.nextSymbol();
 		})
 	);
+	context.subscriptions.push(
+		vscode.commands.registerCommand('side-quest.market.addWatch', async (item) => {
+			await marketService.addWatch(item);
+		})
+	);
+	context.subscriptions.push(
+		vscode.commands.registerCommand('side-quest.market.removeWatch', async (symbol: string) => {
+			await marketService.removeWatch(symbol);
+		})
+	);
 }
 
 /**

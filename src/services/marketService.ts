@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { SideQuestViewProvider } from '../SideQuestViewProvider';
 import { httpService } from './httpService';
+import { logger } from '../utils/logger';
 
 interface WatchItemConfig {
 	type: 'stock' | 'crypto' | 'index';
@@ -49,6 +50,15 @@ class ConfigManager {
 	public getAutoRefresh(): boolean {
 		const cfg = vscode.workspace.getConfiguration('side-quest.market');
 		return cfg.get<boolean>('autoRefresh', true);
+	}
+
+	public async setWatchlist(items: WatchItemConfig[]): Promise<void> {
+		await this._context.globalState.update('side-quest.market.watchlist', items);
+	}
+
+	public getPersistedWatchlist(): WatchItemConfig[] {
+		const stored = this._context.globalState.get<WatchItemConfig[]>('side-quest.market.watchlist');
+		return stored ?? [];
 	}
 }
 
@@ -129,6 +139,10 @@ class DataManager {
 
 	public startAutoRefresh(): void {
 		this.stopAutoRefresh();
+		logger.info('[Market] start auto refresh', {
+			refreshInterval: this._config.getRefreshInterval(),
+			rotateInterval: this._config.getRotateInterval(),
+		});
 		this.fetchQuotes();
 		const refreshMs = Math.max(5, this._config.getRefreshInterval()) * 1000;
 		this.refreshTimer = setInterval(() => this.fetchQuotes(), refreshMs);
@@ -150,7 +164,9 @@ class DataManager {
 
 	public rotate(): void {
 		const quotes = Array.from(this.cache.values());
-		if (quotes.length === 0) return;
+		if (quotes.length === 0) {
+			return;
+		}
 		this.currentIndex = (this.currentIndex + 1) % quotes.length;
 		const quote = quotes[this.currentIndex];
 		this._onStatus?.(quote);
@@ -158,10 +174,13 @@ class DataManager {
 
 	public async fetchQuotes(): Promise<void> {
 		try {
-			const watchlist = this._config.getWatchlist();
+			const stored = this._config.getPersistedWatchlist();
+			const watchlist = stored.length > 0 ? stored : this._config.getWatchlist();
 			const list: WatchItemConfig[] = watchlist.length > 0 ? watchlist : [{ type: 'stock', symbol: 'AAPL', sourceId: 'yahoo', displayName: 'Apple' }];
+			logger.info('[Market] fetchQuotes', { count: list.length, symbols: list.map((i) => i.symbol) });
 
 			const quotes = await this._fetchYahoo(list);
+			logger.info('[Market] fetchQuotes res',quotes);
 
 			if (quotes.length > 0) {
 				quotes.forEach((q) => this.cache.set(q.symbol, q));
@@ -169,6 +188,7 @@ class DataManager {
 				this.currentIndex = 0;
 				this._onQuotes(quotes, this.lastUpdate);
 				this._onStatus?.(quotes[0]);
+				logger.info('[Market] quotes updated', { count: quotes.length, ts: this.lastUpdate });
 				return;
 			}
 
@@ -183,6 +203,7 @@ class DataManager {
 			this._onError?.('未获取到行情数据');
 		} catch (err) {
 			console.error('[Market] fetchQuotes failed', err);
+			logger.error('[Market] fetchQuotes failed', err);
 			if (this.cache.size > 0) {
 				const cached = Array.from(this.cache.values());
 				this._onQuotes(cached, this.lastUpdate);
@@ -198,9 +219,11 @@ class DataManager {
 		const symbols = items.map((i) => i.symbol).join(',');
 		const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`;
 		try {
+			logger.debug('[Market] yahoo request', { url });
 			const res = await httpService.get(url, { timeout: 8000 });
 			const json = typeof res === 'string' ? JSON.parse(res) : res;
 			const results: any[] = json?.quoteResponse?.result || [];
+			logger.debug('[Market] yahoo response count', { count: results.length });
 			return results.map((r) => {
 				const base = items.find((i) => i.symbol.toLowerCase() === String(r.symbol || '').toLowerCase());
 				return {
@@ -215,6 +238,7 @@ class DataManager {
 			}).filter((q) => q.symbol);
 		} catch (err) {
 			console.error('[Market] Yahoo fetch failed, using cache', err);
+			logger.error('[Market] Yahoo fetch failed', err);
 			return Array.from(this.cache.values());
 		}
 	}
@@ -268,6 +292,30 @@ export class MarketService {
 
 	public nextSymbol(): void {
 		this._data.rotate();
+	}
+
+	public async addWatch(item: WatchItemConfig): Promise<void> {
+		if (!item.symbol || item.symbol.trim().length === 0) {
+			void vscode.window.showErrorMessage('标的代码不能为空');
+			return;
+		}
+		const current = this._config.getPersistedWatchlist();
+		const exists = current.some((w) => w.symbol.toLowerCase() === item.symbol.toLowerCase());
+		if (!exists) {
+			current.push(item);
+			await this._config.setWatchlist(current);
+		} else {
+			void vscode.window.showInformationMessage(`${item.symbol} 已在自选列表中`);
+			return;
+		}
+		await this._data.fetchQuotes();
+	}
+
+	public async removeWatch(symbol: string): Promise<void> {
+		const current = this._config.getPersistedWatchlist();
+		const next = current.filter((w) => w.symbol.toLowerCase() !== symbol.toLowerCase());
+		await this._config.setWatchlist(next);
+		await this._data.fetchQuotes();
 	}
 
 	public dispose(): void {
